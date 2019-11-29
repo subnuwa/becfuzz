@@ -42,7 +42,7 @@ std::map <std::pair<u64, u64>, u32> indirect_ids;
 std::multimap <u64, u64> indirect_addrs;
 
 static u32 cur_max_id; // the current id of indirect edges
-static u16 first_exec = 1; // 1: the first; 2: not the first
+
 
 
 /* 
@@ -64,7 +64,7 @@ void initAflForkServer(u32 max_conditional, const char* indirect_file)
         if (indirect_io.is_open()){
             while(indirect_io >> ind_src >> ind_des >> addr_id){
                 indirect_addrs.insert(make_pair(ind_src, ind_des));
-                indirect_ids[make_pair(ind_src, ind_des)] = addr_id;
+                indirect_ids.insert(make_pair(make_pair(ind_src, ind_des), addr_id));
                 if (addr_id > cur_max_id) cur_max_id = addr_id;
             }
             indirect_io.close();
@@ -120,8 +120,6 @@ void initAflForkServer(u32 max_conditional, const char* indirect_file)
             close(FORKSRV_FD+1);
             return;
         } 
-        // first_exec++;
-        // if(first_exec == 3) first_exec = 2;
         
         /* Parent - Inform controller that we started a new run. */
 		if (write(FORKSRV_FD + 1, &fork_pid, 4) != 4) {
@@ -158,12 +156,14 @@ void ConditionJump(u32 cond_id){
 }
 
 /* 
-max_edge_num: the max number of edges
+max_map_size: the max number of edges
+max_conditional: the largest number of conditional edges
+addr_file: path to the file that contains (src_addr  des_addr  id)
 
 TODO: 1. read indirect_ids if first execution;
       2. save (src_addr, des_addr) if new
   */
-void IndirectEdges(u64 src_addr, u64 des_addr, u32 max_edge_num){
+void IndirectEdges(u64 src_addr, u64 des_addr, u32 max_map_size, u32 max_conditional, const char* addr_file){
     //std::map <std::pair<u64, u64>, u32> indirect_local_ids;
 
     bool exist_flag = false;
@@ -190,18 +190,23 @@ void IndirectEdges(u64 src_addr, u64 des_addr, u32 max_edge_num){
     else{ // indirect edge does not exist; find a new indirect edge
         //add it to indirect_addrs and indirect_ids
         indirect_addrs.insert(make_pair(src_addr, des_addr));
-
+        // in case some instrumentations are before forkserver
+        if (cur_max_id < (max_conditional-1)) cur_max_id = max_conditional-1;
         //assign a new id for the edge
         cur_max_id++;
-        if (cur_max_id >= max_edge_num) cur_max_id = max_edge_num - 1; //don't overflow
+        if (cur_max_id >= max_map_size) cur_max_id = max_map_size - 1; //don't overflow
+
+
         indirect_ids.insert(make_pair(make_pair(src_addr, des_addr), cur_max_id));
         if(trace_bits) {
             trace_bits[cur_max_id]++;
         }
+        //save new edge into a file, for recovering fuzzing
+        ofstream indaddrs;
+        indaddrs.open (addr_file, ios::out | ios::app | ios::binary); //write file
+        if(indaddrs.is_open()){
+            indaddrs << src_addr << " " << des_addr << " " << cur_max_id<< endl; 
+        }
         
     }
-
-   
-   
-
 }

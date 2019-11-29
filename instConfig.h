@@ -1,3 +1,6 @@
 
 #define NUM_EDGE_FILE "num_edges.txt"
+#define INDIRECT_ADDR_ID "indirect_addr_ids.txt"
 
+
+#define NUM_INDIRECT_TARGETS 5  // carefully

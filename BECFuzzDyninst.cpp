@@ -35,10 +35,10 @@ using namespace std;
 using namespace Dyninst;
 
 //hash table length
-#define NUM_INDIRECT_TARGETS 5  // carefully
+
 static u32 num_conditional, // the number of total conditional edges
             num_indirect,   // the number of total indirect edges
-            max_map_id, // the number of all edges, including potential indirect edges
+            max_map_size, // the number of all edges, including potential indirect edges
             condition_id; // assign unique id for each conditional edges
 
 
@@ -49,33 +49,14 @@ bool verbose = false;
 set<string> instrumentLibraries;
 set<string> runtimeLibraries;
 char* becfuzz_dir = NULL;  //Output dir of becfuzz results
-//char* tracer_dir = NULL; //some addresses will be read from tracer
-//Category bin_cate = BIN_NONE; // category of the binary: crash/tracer/oracle
-//bool mainExit=false; //true when it's the first time running tracer
-//bool isOracle = false; //rosen
-//bool isTracer = false;
-//bool isCrash = false;
-//bool isTrimmer = false; //rosen
 
-
-// //addresses
-// multimap <u32, u32> indcall_addrs;
-// multimap <u32, u32> indjump_addrs; //deduplicate indirect pairs
-// set <u32> condnot_addrs;
-// set <u32> condtaken_addrs;
-
-// // addrs of marks (for differentiating paths)
-// multimap <u32, u32> mark_indcall_addrs;
-// multimap <u32, u32> mark_indjump_addrs;
-// set <u32> mark_condnot_addrs;
-// set <u32> mark_condtaken_addrs;
 
 
 // callback functions
 BPatch_function *ConditionJump;
+BPatch_function *IndirectEdges;
+BPatch_function *initAflForkServer;
 
-
-// BPatch_function *initAflForkServer;
 // BPatch_function *getIndAddrs;
 // BPatch_function *BBCallback;
 // BPatch_function *ConditionMark;
@@ -140,7 +121,7 @@ bool parseOptions(int argc, char **argv)
     }
 
     if(becfuzz_dir == NULL){
-        cerr << "Output directory for addresses is required!" << endl;
+        cerr << "Output directory for becfuzz is required!" << endl;
         cerr << "Usage: " << argv[0] << USAGE;
         return false;
     }
@@ -277,7 +258,7 @@ bool count_edges(BPatch_binaryEdit * appBin, BPatch_image *appImage,
     
 }
 
-// instrument at conditional edges
+// instrument at conditional edges, like afl
 bool instrumentCondition(BPatch_binaryEdit * appBin, BPatch_function * instFunc, BPatch_point * instrumentPoint, 
          Dyninst::Address block_addr, u32 cond_id){
     vector<BPatch_snippet *> cond_args;
@@ -297,9 +278,47 @@ bool instrumentCondition(BPatch_binaryEdit * appBin, BPatch_function * instFunc,
 }
 
 
-//instrument at edges
+/*
+num_all_edges: the number of all edges
+num_condition_edges: the number of all conditional edges
+ind_addr_file: path to the file that contains (src_addr des_addr id)
+*/
+bool instrumentIndirect(BPatch_binaryEdit * appBin, BPatch_function * instFunc, 
+                BPatch_point * instrumentPoint, Dyninst::Address src_addr, u32 num_all_edges, u32 num_condition_edges,
+                fs::path ind_addr_file){
+    vector<BPatch_snippet *> ind_args;
+
+    BPatch_constExpr srcOffset((u64)src_addr);
+    ind_args.push_back(&srcOffset);
+    ind_args.push_back(new BPatch_dynamicTargetExpr());//target offset
+    BPatch_constExpr AllEdges(num_all_edges);
+    ind_args.push_back(&AllEdges);
+    BPatch_constExpr CondEdges(num_condition_edges);
+    ind_args.push_back(&CondEdges);
+    BPatch_constExpr AddrIDFile(ind_addr_file.c_str());
+    ind_args.push_back(&AddrIDFile);
+
+
+    BPatch_funcCallExpr instIndirect(*instFunc, ind_args);
+
+    BPatchSnippetHandle *handle =
+            appBin->insertSnippet(instIndirect, *instrumentPoint, BPatch_callBefore, BPatch_firstSnippet);
+    
+    if (!handle) {
+            cerr << "Failed to insert instrumention in basic block at offset 0x" << hex << src_addr << endl;
+            return false;
+        }
+    return true;
+
+}
+
+
+/*instrument at edges
+    addr_id_file: path to the file that contains (src_addr des_addr id)
+*/
 bool edgeInstrument(BPatch_binaryEdit * appBin, BPatch_image *appImage, 
-                    vector < BPatch_function * >::iterator funcIter, char* funcName, fs::path num_edge_file){
+                    vector < BPatch_function * >::iterator funcIter, char* funcName, 
+                    fs::path addr_id_file){
     BPatch_function *curFunc = *funcIter;
     BPatch_flowGraph *appCFG = curFunc->getCFG ();
 
@@ -333,7 +352,7 @@ bool edgeInstrument(BPatch_binaryEdit * appBin, BPatch_image *appImage,
             
             if ((*edge_iter)->getType() == CondJumpTaken){
                 instrumentCondition(appBin, ConditionJump, (*edge_iter)->getPoint(), addr, condition_id);
-                condition_id++;
+                condition_id++;  //assign a new id fot the next conditional edge
             }
             else if ((*edge_iter)->getType() == CondJumpNottaken){
                 instrumentCondition(appBin, ConditionJump, (*edge_iter)->getPoint(), addr, condition_id);
@@ -349,20 +368,58 @@ bool edgeInstrument(BPatch_binaryEdit * appBin, BPatch_image *appImage,
                 if(category == Dyninst::InstructionAPI::c_CallInsn) {//indirect call
                     vector<BPatch_point *> callPoints;
                     appImage->findPoints(addr, callPoints); //use callPoints[0] as the instrument point
+                    instrumentIndirect(appBin, IndirectEdges, callPoints[0], addr, max_map_size, num_conditional, addr_id_file);
 
                 }
                 
                 else if(category == Dyninst::InstructionAPI::c_BranchInsn) {//indirect jump
+                    vector<BPatch_point *> callPoints;
+                    appImage->findPoints(addr, callPoints); //use callPoints[0] as the instrument point
+                    instrumentIndirect(appBin, IndirectEdges, callPoints[0], addr, max_map_size, num_conditional, addr_id_file);
+
                                 
                 }
  
             }
         }
     }
-
-
 }
 
+/* insert forkserver at the beginning of main
+    funcInit: function to be instrumented, i.e., main
+
+*/
+
+bool insertForkServer(BPatch_binaryEdit * appBin, BPatch_function * instIncFunc,
+                         BPatch_function *funcInit, u32 num_cond_edges, fs::path ind_addr_file)
+{
+
+    /* Find the instrumentation points */
+    vector < BPatch_point * >*funcEntry = funcInit->findPoint (BPatch_entry);
+
+    if (NULL == funcEntry) {
+        cerr << "Failed to find entry for function. " <<  endl;
+        return false;
+    }
+
+    //cout << "Inserting init callback." << endl;
+    BPatch_Vector < BPatch_snippet * >instArgs; 
+    BPatch_constExpr NumCond(num_cond_edges);
+    instArgs.push_back(&NumCond);
+    BPatch_constExpr AddrIDFile(ind_addr_file.c_str());
+    instArgs.push_back(&AddrIDFile);
+
+    BPatch_funcCallExpr instIncExpr(*instIncFunc, instArgs);
+
+    /* Insert the snippet at function entry */
+    BPatchSnippetHandle *handle =
+        appBin->insertSnippet (instIncExpr, *funcEntry, BPatch_callBefore, BPatch_firstSnippet);
+    if (!handle) {
+        cerr << "Failed to insert init callback." << endl;
+        return false;
+    }
+    return true;
+}
 
 int main (int argc, char **argv){
 
@@ -371,7 +428,8 @@ int main (int argc, char **argv){
     }
 
     fs::path out_dir (reinterpret_cast<const char*>(becfuzz_dir)); // files for becfuzz results
-    fs::path num_file = out_dir / NUM_EDGE_FILE; // out_dir: becfuzz outputs
+    fs::path num_file = out_dir / NUM_EDGE_FILE; // out_dir: becfuzz outputs; max edges
+    fs::path addr_id_file = out_dir / INDIRECT_ADDR_ID; //indirect edge addrs and ids
 
     /* start instrumentation*/
     BPatch bpatch;
@@ -405,22 +463,22 @@ int main (int argc, char **argv){
     }
 
     initAflForkServer = findFuncByName (appImage, (char *) "initAflForkServer");
-    IndirectBranch = findFuncByName (appImage, (char *) "IndirectBranch");
+    //IndirectBranch = findFuncByName (appImage, (char *) "IndirectBranch");
     
     //indirect addresses pairs
-    getIndAddrs = findFuncByName (appImage, (char *) "getIndirectAddrs");
-    clearMaps = findFuncByName (appImage, (char *) "clearMultimaps");
+    //getIndAddrs = findFuncByName (appImage, (char *) "getIndirectAddrs");
+    //clearMaps = findFuncByName (appImage, (char *) "clearMultimaps");
     
     //conditional jumps
     ConditionJump = findFuncByName (appImage, (char *) "ConditionJump");
-    BBCallback =  findFuncByName (appImage, (char *) "BBCallback");
-    ConditionMark = findFuncByName (appImage, (char *) "ConditionMark");
+    IndirectEdges = findFuncByName (appImage, (char *) "IndirectEdges");
+    //BBCallback =  findFuncByName (appImage, (char *) "BBCallback");
+    //ConditionMark = findFuncByName (appImage, (char *) "ConditionMark");
     
-    atMainExit = findFuncByName (appImage, (char *) "atMainExit");
+    //atMainExit = findFuncByName (appImage, (char *) "atMainExit");
 
 
-    if (!initAflForkServer || !ConditionJump || !IndirectBranch || !ConditionMark
-        || !getIndAddrs || !clearMaps || !BBCallback || !atMainExit) {
+    if (!initAflForkServer || !ConditionJump || !IndirectEdges) {
         cerr << "Instrumentation library lacks callbacks!" << endl;
         return EXIT_FAILURE;
     }
@@ -434,7 +492,7 @@ int main (int argc, char **argv){
    // iterate over all functions to count edges
     num_conditional = 0;
     num_indirect = 0;
-    max_map_id = 0;
+    max_map_size = 0;
     for (auto countIter = allFunctions.begin (); countIter != allFunctions.end (); ++countIter) {
         BPatch_function *countFunc = *countIter;
         char funcName[1024];
@@ -452,28 +510,23 @@ int main (int argc, char **argv){
     u16 num_exp = (u16)ceil( log(num_tpm) / log(2) );
     // be general with the shared memory
     if(num_exp < MAP_SIZE_POW2) num_exp = MAP_SIZE_POW2;
-    max_map_id = (1 << num_exp);
+    max_map_size = (1 << num_exp);
     
     ofstream numedges;
     numedges.open (num_file.c_str(), ios::out | ios::app | ios::binary); //write file
     if(numedges.is_open()){
-        numedges << num_conditional << " " << max_map_id << endl; 
+        numedges << num_conditional << " " << max_map_size << endl; 
     }
     numedges.close();    
-    //TODO: fuzzer gets the values through pipe (or shared memory?)
+    //TODO: fuzzer gets the values through pipe (or shared memory?)?
 
 
-    /*
-        instrument at edges
-    */
-   /*TODO:
+   /* instrument edges
    1. insert at conditional edges, like afl
    2.  insert at indirect edges, and compare edges dynamically:
         1) the first id of an indirect edge is the number of conditional edges num_c
-        2) use unorder_map to maintain [(src_addr, des_addr), id]
-        3) ###each time it encounters a new edge, restart executing the target; this will
-            load the unorder_map to check the id;
-        OR: at the beginning of main, insert a global unorder_map to record [(src_addr, des_addr), id]
+        2) use map to maintain [(src_addr, des_addr), id]
+        3) at the beginning of main, insert a global map to load [(src_addr, des_addr), id]
         4) at each indirect edge, when meeting a new indirect edge, write the [(src_addr, des_addr), id] 
             into a file to record them; it can be reused if fuzzing stops accidently
     */
@@ -484,8 +537,41 @@ int main (int argc, char **argv){
         curFunc->getName (funcName, 1024);
         if(isSkipFuncs(funcName)) continue;
         //instrument at edges
-        if(!edgeInstrument(appBin, appImage, funcIter, funcName, num_file)) return EXIT_FAILURE; 
+        //if(!edgeInstrument(appBin, appImage, funcIter, funcName, addr_id_file)) return EXIT_FAILURE;
+        edgeInstrument(appBin, appImage, funcIter, funcName, addr_id_file);
 
     }
+
+    BPatch_function *funcToPatch = NULL;
+    BPatch_Vector<BPatch_function*> funcs;
+    
+    appImage->findFunction("main",funcs);
+    if(!funcs.size()) {
+        cerr << "Couldn't locate main, check your binary. "<< endl;
+        return EXIT_FAILURE;
+    }
+    // there should really be only one
+    funcToPatch = funcs[0];
+
+    if(!insertForkServer (appBin, initAflForkServer, funcToPatch, num_conditional, addr_id_file)){
+        cerr << "Could not insert init callback at main." << endl;
+        return EXIT_FAILURE;
+    }
+
+    if(verbose){
+        cout << "Saving the instrumented binary to " << instrumentedBinary << "..." << endl;
+    }
+    // save the instrumented binary
+    if (!appBin->writeFile (instrumentedBinary)) {
+        cerr << "Failed to write output file: " << instrumentedBinary << endl;
+        return EXIT_FAILURE;
+    }
+
+    if(verbose){
+        cout << "All done! Happy fuzzing!" << endl;
+    }
+
+    return EXIT_SUCCESS;
+
 
 }
