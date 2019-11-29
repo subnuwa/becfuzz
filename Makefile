@@ -50,7 +50,7 @@ HELPER_PATH = $(PREFIX)/lib/afl
 DOC_PATH    = $(PREFIX)/share/doc/afl
 MISC_PATH   = $(PREFIX)/share/afl
 
-# PROGS intentionally omit untracer-as, which gets installed elsewhere.
+# PROGS intentionally omit as, which gets installed elsewhere.
 
 PROGS       = becfuzz-afl libBECFuzzDyninst BECFuzzDyninst afl-showmap
 SH_PROGS    = afl-plot
@@ -114,12 +114,12 @@ install: all
 	mkdir -p -m 755 $${DESTDIR}$(BIN_PATH) $${DESTDIR}$(HELPER_PATH) $${DESTDIR}$(DOC_PATH) $${DESTDIR}$(MISC_PATH)
 	rm -f $${DESTDIR}$(BIN_PATH)/afl-plot.sh
 	install -m 755 $(PROGS) $(SH_PROGS) $${DESTDIR}$(BIN_PATH)
-	rm -f $${DESTDIR}$(BIN_PATH)/untracer-as
+	rm -f $${DESTDIR}$(BIN_PATH)/becfuzz-as
 	if [ -f afl-qemu-trace ]; then install -m 755 afl-qemu-trace $${DESTDIR}$(BIN_PATH); fi
 ifndef AFL_TRACE_PC
-	if [ -f untracer-clang-fast -a -f afl-llvm-pass.so -a -f afl-llvm-rt.o ]; then set -e; install -m 755 untracer-clang-fast $${DESTDIR}$(BIN_PATH); ln -sf untracer-clang-fast $${DESTDIR}$(BIN_PATH)/untracer-clang-fast++; install -m 755 afl-llvm-pass.so afl-llvm-rt.o $${DESTDIR}$(HELPER_PATH); fi
+	if [ -f becfuzz-clang-fast -a -f afl-llvm-pass.so -a -f afl-llvm-rt.o ]; then set -e; install -m 755 becfuzz-clang-fast $${DESTDIR}$(BIN_PATH); ln -sf becfuzz-clang-fast $${DESTDIR}$(BIN_PATH)/becfuzz-clang-fast++; install -m 755 afl-llvm-pass.so afl-llvm-rt.o $${DESTDIR}$(HELPER_PATH); fi
 else
-	if [ -f untracer-clang-fast -a -f afl-llvm-rt.o ]; then set -e; install -m 755 untracer-clang-fast $${DESTDIR}$(BIN_PATH); ln -sf untracer-clang-fast $${DESTDIR}$(BIN_PATH)/untracer-clang-fast++; install -m 755 afl-llvm-rt.o $${DESTDIR}$(HELPER_PATH); fi
+	if [ -f becfuzz-clang-fast -a -f afl-llvm-rt.o ]; then set -e; install -m 755 becfuzz-clang-fast $${DESTDIR}$(BIN_PATH); ln -sf becfuzz-clang-fast $${DESTDIR}$(BIN_PATH)/becfuzz-clang-fast++; install -m 755 afl-llvm-rt.o $${DESTDIR}$(HELPER_PATH); fi
 endif
 	if [ -f afl-llvm-rt-32.o ]; then set -e; install -m 755 afl-llvm-rt-32.o $${DESTDIR}$(HELPER_PATH); fi
 	if [ -f afl-llvm-rt-64.o ]; then set -e; install -m 755 afl-llvm-rt-64.o $${DESTDIR}$(HELPER_PATH); fi

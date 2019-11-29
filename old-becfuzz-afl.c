@@ -89,6 +89,7 @@ EXP_ST s32 trimmer_fsrv_ctlFD,         /* Forkserver control pipes         */
            trimmer_child_PID;          /* Forkserver child PIDs            */
 
 unsigned long mark_src_addr=0, mark_des_addr=0; //rosen
+/* -------------- Untracer-AFL vars ------------------------------------- */
 
 #define FORKSRV_FD 198            /* Hardcoded forkserver FD's. Utilized in IPC. */
 
@@ -452,7 +453,7 @@ static void setup_args(int argc, char ** argv){
   crash_argv = malloc((argc-optind+1) * sizeof(target_argv));
   trimmer_argv = malloc((argc-optind+1) * sizeof(target_argv)); //rosen
   //BECFuzz dir
-  u8* tmp = alloc_printf("%s/BECFuzz", out_dir);  //rosen- keep
+  u8* tmp = alloc_printf("%s/BECFuzz", out_dir);
   if (mkdir(tmp, 0700)) PFATAL("Unable to create '%s'", tmp);
   ck_free(tmp);
 
