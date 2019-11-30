@@ -51,18 +51,10 @@ set<string> runtimeLibraries;
 char* becfuzz_dir = NULL;  //Output dir of becfuzz results
 
 
-
-// callback functions
+// call back functions
 BPatch_function *ConditionJump;
 BPatch_function *IndirectEdges;
 BPatch_function *initAflForkServer;
-
-// BPatch_function *getIndAddrs;
-// BPatch_function *BBCallback;
-// BPatch_function *ConditionMark;
-// BPatch_function *IndirectBranch;
-// BPatch_function *clearMaps;
-// BPatch_function *atMainExit;
 
 
 
@@ -254,7 +246,7 @@ bool count_edges(BPatch_binaryEdit * appBin, BPatch_image *appImage,
             }
         }
     }
-
+    return true;
     
 }
 
@@ -383,6 +375,7 @@ bool edgeInstrument(BPatch_binaryEdit * appBin, BPatch_image *appImage,
             }
         }
     }
+    return true;
 }
 
 /* insert forkserver at the beginning of main

@@ -314,10 +314,12 @@
    after changing this - otherwise, SEGVs may ensue. */
 
 #define MAP_SIZE_POW2       16
+
 // MAP_SIZE- rosen: need to change depending on the size of target program
 #define MAP_SIZE            (1 << MAP_SIZE_POW2)
-/*Cofree def 16bits: 0xffff*/
-#define KEEP_LOW            (MAP_SIZE -1)
+
+
+
 
 /* Maximum allocator request size (keep well under INT_MAX): */
 

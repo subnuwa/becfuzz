@@ -15,16 +15,32 @@
 
 
 [TODO]
+becfuzz-afl.c
+##1. read max conditional and total from file, chenge MAP_SIZE
+2. save_if_interest(): cancel the hit-count seeds
+3. path checksum: key = cksum/65536, use collision chain; consider var_bytes in becfuzz-afl.c
+    q->var_behavior = 1;
+    save_if_interesting();
+    calibrate_case();
+    
+    top_chain
+    EXP_ST u8 path_hash[MAX_PATH]; /* hash table for path indentify */
+    EXP_ST u8 path_collide[MAX_PATH];
+4. change add_to_queue() to support path hash
+5. create a dir for becfuzz outputs
 
+            struct collide_path * c = ck_alloc(sizeof(struct collide_path));
+            cp->next = c;
+            c->coll_cksum = cksum;
 
-
+ 
 [INSTALL]
 change the 'Dyn_ROOT' in Makefile
 $ make clean && make all
 
 [ENV]
-export COFREE_AFL_PATH=/home/nsc2s/apps/cofree-afl
-export PATH=$PATH:$COFREE_AFL_PATH
+export BEC_AFL_PATH=/apps/becfuzz
+export PATH=$PATH:$BEC_AFL_PATH
 
 #export DYNINST_INSTALL=/home/nsc2s/apps/buildDyn10.1
 

@@ -14,7 +14,7 @@
 #include <cstring>
 #include <vector>
 #include <algorithm>
-#include "config.h"
+
 #include <sys/types.h>
 #include <sys/shm.h>
 #include <unistd.h>
@@ -25,21 +25,22 @@
 
 #include <stdio.h> 
 #include <stdlib.h> 
-
 #include <map>
+
+#include "config.h"
 #include "instConfig.h"
+#include "instUnmap.h"
 
 #include <experimental/filesystem>
 namespace fs = std::experimental::filesystem;
-using namespace std;
+
 
 
 static u8* trace_bits;
 static s32 shm_id;                    /* ID of the SHM region             */
 //static unsigned short prev_id;
 //examined indirect edges and their ids, [(src_addr, des_addr), id]
-std::map <std::pair<u64, u64>, u32> indirect_ids;
-std::multimap <u64, u64> indirect_addrs;
+std::unordered_map<EDGE, u32, HashEdge> indirect_ids;
 
 static u32 cur_max_id; // the current id of indirect edges
 
@@ -63,8 +64,7 @@ void initAflForkServer(u32 max_conditional, const char* indirect_file)
         ifstream indirect_io (indirect_file); //read file
         if (indirect_io.is_open()){
             while(indirect_io >> ind_src >> ind_des >> addr_id){
-                indirect_addrs.insert(make_pair(ind_src, ind_des));
-                indirect_ids.insert(make_pair(make_pair(ind_src, ind_des), addr_id));
+                indirect_ids.insert(make_pair(EDGE(ind_src, ind_des), addr_id));
                 if (addr_id > cur_max_id) cur_max_id = addr_id;
             }
             indirect_io.close();
@@ -164,40 +164,25 @@ TODO: 1. read indirect_ids if first execution;
       2. save (src_addr, des_addr) if new
   */
 void IndirectEdges(u64 src_addr, u64 des_addr, u32 max_map_size, u32 max_conditional, const char* addr_file){
-    //std::map <std::pair<u64, u64>, u32> indirect_local_ids;
-
-    bool exist_flag = false;
+    
     //read assigned ids from indirect_ids only if it's the first execution
-    if (indirect_addrs.count(src_addr)){
-        auto all_src = indirect_addrs.equal_range(src_addr);
-        std::multimap <u64, u64>::iterator ite_addr;
-        for (ite_addr=all_src.first; ite_addr!=all_src.second; ++ite_addr){
-            if (des_addr == (*ite_addr).second){
-                exist_flag = true; //exist
-                break;
-            } 
-        }
-    }
-
-    if (exist_flag){ // already exist
-        std::map<std::pair<u64, u64>, u32>::iterator itdl = indirect_ids.find(make_pair(src_addr, des_addr));
+    if (indirect_ids.count(EDGE(src_addr, des_addr))){ // already exist
+        auto itdl = indirect_ids.find(EDGE(src_addr, des_addr));
         if (itdl != indirect_ids.end()){
             if(trace_bits) {
                 trace_bits[(*itdl).second]++;
             }
         }
     }
-    else{ // indirect edge does not exist; find a new indirect edge
-        //add it to indirect_addrs and indirect_ids
-        indirect_addrs.insert(make_pair(src_addr, des_addr));
+    else{ 
+        /* indirect edge does not exist; find a new indirect edge;
+        add it to indirect_ids*/
         // in case some instrumentations are before forkserver
         if (cur_max_id < (max_conditional-1)) cur_max_id = max_conditional-1;
         //assign a new id for the edge
         cur_max_id++;
         if (cur_max_id >= max_map_size) cur_max_id = max_map_size - 1; //don't overflow
-
-
-        indirect_ids.insert(make_pair(make_pair(src_addr, des_addr), cur_max_id));
+        indirect_ids.insert(make_pair(EDGE(src_addr, des_addr), cur_max_id));
         if(trace_bits) {
             trace_bits[cur_max_id]++;
         }
