@@ -56,6 +56,7 @@
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <sys/file.h>
+#include <malloc.h> //rosen-test
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined (__OpenBSD__)
 #  include <sys/sysctl.h>
@@ -87,14 +88,14 @@
 /********************** BECFuzz Vars *************************/
 EXP_ST u8 *inst_binary,           /* path to instrumented binary */
           *becfuzz_dir;          /* the output dir for becfuzz */
-EXP_ST u32 Dyn_Map_Size = 1 ,     /* the map size set according to instrument result */
-        Dyn_Conditional_Size = 1; /* the number of conditional edges */
+// EXP_ST u32 Dyn_Map_Size = 1 ,     /* the map size set according to instrument result */
+//         Dyn_Conditional_Size = 1; /* the number of conditional edges */
 
-EXP_ST u8  *virgin_bits,     /* Regions yet untouched by fuzzing */
-           *virgin_tmout,    /* Bits we haven't seen in tmouts   */
-           *virgin_crash;    /* Bits we haven't seen in crashes  */
+EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
+           virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */
+           virgin_crash[MAP_SIZE];    /* Bits we haven't seen in crashes  */
 
-static u8  *var_bytes;       /* Bytes that appear to be variable */
+static u8  var_bytes[MAP_SIZE];       /* Bytes that appear to be variable */
 
 EXP_ST u8 path_hash[MAX_PATH]; /* hash table for path indentify*/
                         /* 0: not found, 1: found, 2: collide */
@@ -277,7 +278,7 @@ static struct queue_entry *queue,     /* Fuzzing queue (linked list), head  */
                           *queue_top, /* Top of the list, rear            */
                           *q_prev100; /* Previous 100 marker              */
 
- static struct queue_entry **top_rated; /* Top entries for bitmap bytes  */
+ static struct queue_entry *top_rated[MAP_SIZE]; /* Top entries for bitmap bytes  */
 
 //becfuzz
 struct collide_path{
@@ -357,7 +358,7 @@ enum{
     OLD_NO_COLSN,   //1, old path without collision
     NEW_COLSN,      //2, new path with collision
     NEW_NO_COLSN,   //3, new path without collision
-    NEW_VAR,         //4, new path with variance(e.g., randomness)
+    SEED_VAR,         //4, path with variance(e.g., randomness)
     NEW_EDGE 
 };
 
@@ -606,52 +607,49 @@ void execute(char * tmp[], char * pid_name, int print_output){
 }
 
 /* instrument target binary and get the size of bitmap*/
-static void instrument_binary(){
-    // instrument
-    char * dyninst_args_tracer[] = {"BECFuzzDyninst", "-i", target_path, "-o", inst_binary, "-b", becfuzz_dir, NULL};
-    execute(dyninst_args_tracer, "BECFuzzDyninst", 1);
+// static void instrument_binary(){
+//     // instrument
+//     char * dyninst_args_tracer[] = {"BECFuzzDyninst", "-i", target_path, "-o", inst_binary, "-b", becfuzz_dir, NULL};
+//     execute(dyninst_args_tracer, "BECFuzzDyninst", 1);
 
-    //get the value of max total edges and max conditional edges
-    u8* tmp;
-    FILE *fp;
+//     //get the value of max total edges and max conditional edges
+//     u8* tmp;
+//     FILE *fp;
 
-    tmp = alloc_printf("%s/%s", becfuzz_dir, NUM_EDGE_FILE);
-    fp = fopen(tmp, "rb");
-    if(!fp){
-        PFATAL("open address file '%s' failed!\n", tmp);
-    }
-    int ret = fscanf(fp,"%d %d", &Dyn_Conditional_Size, &Dyn_Map_Size);
-    if(ret == 2) {
-        OKF("Read bitmap size successfully!");
-    }
-    else{
-        PFATAL("Read bitmap size failed!\n");
-    }
-    fclose(fp);
-    ck_free(tmp);
+//     tmp = alloc_printf("%s/%s", becfuzz_dir, NUM_EDGE_FILE);
+//     fp = fopen(tmp, "rb");
+//     if(!fp){
+//         PFATAL("open address file '%s' failed!\n", tmp);
+//     }
+//     int ret = fscanf(fp,"%d %d", &Dyn_Conditional_Size, &Dyn_Map_Size);
+//     if(ret == 2) {
+//         OKF("Read bitmap size successfully!");
+//         ACTF("conditional size:%d, map size:%d", Dyn_Conditional_Size, Dyn_Map_Size); //rosen
+//     }
+//     else{
+//         PFATAL("Read bitmap size failed!\n");
+//     }
+//     fclose(fp);
+//     ck_free(tmp);
 
-    return;
-}
+//     return;
+// }
 
 // malloc some global variables
-static void malloc_maps(){
-    // EXP_ST u8  virgin_bits[Dyn_Map_Size],     /* Regions yet untouched by fuzzing */
-    //        virgin_tmout[Dyn_Map_Size],    /* Bits we haven't seen in tmouts   */
-    //        virgin_crash[Dyn_Map_Size];    /* Bits we haven't seen in crashes  */
-    // static u8  var_bytes[Dyn_Map_Size];       /* Bytes that appear to be variable */
-    // static struct queue_entry* top_rated[Dyn_Map_Size];
+// static void malloc_maps(){
 
+//     virgin_bits = (u8*)ck_alloc(sizeof(u8) * Dyn_Map_Size);
+//     virgin_tmout = (u8*)ck_alloc(sizeof(u8) * Dyn_Map_Size);
+//     virgin_crash = (u8*)ck_alloc(sizeof(u8) * Dyn_Map_Size);
+//     var_bytes = (u8*)ck_alloc(sizeof(u8) * Dyn_Map_Size);
+//     top_rated = (struct queue_entry**)ck_alloc(sizeof(struct queue_entry*) * Dyn_Map_Size);
 
-    virgin_bits = (u8*)ck_alloc(sizeof(u8) * Dyn_Map_Size);
-    virgin_tmout = (u8*)ck_alloc(sizeof(u8) * Dyn_Map_Size);
-    virgin_crash = (u8*)ck_alloc(sizeof(u8) * Dyn_Map_Size);
-    var_bytes = (u8*)ck_alloc(sizeof(u8) * Dyn_Map_Size);
-    top_rated = (struct queue_entry**)ck_alloc(sizeof(struct queue_entry*) * Dyn_Map_Size);
+//     return;
+// }
 
-
-    return;
-}
-
+/* add a new path id
+    q: the saved seed related to the new path
+*/
 static void newPathInsert(struct queue_entry *q, u16 path_id, u32 cksum){
 
     struct collide_path *cur_cp = (struct collide_path *)ck_alloc(sizeof(struct collide_path));
@@ -714,9 +712,9 @@ static u8 OldEdgePathIdentify(struct queue_entry *cur_q, u16 path_id, u32 cksum)
     }
     
     /*if current seed has variance, 
-        don't consider it new under any situation*/
+        don't consider the cksum as a new one (remove randomness)*/
     if (cur_q->var_behavior == 1){ 
-        newFlag = NEW_VAR;
+        newFlag = SEED_VAR;
     }
 
     return newFlag;
@@ -1031,7 +1029,7 @@ EXP_ST void write_bitmap(void) {
 
   if (fd < 0) PFATAL("Unable to open '%s'", fname);
 
-  ck_write(fd, virgin_bits, Dyn_Map_Size, fname);
+  ck_write(fd, virgin_bits, MAP_SIZE, fname);
 
   close(fd);
   ck_free(fname);
@@ -1047,7 +1045,7 @@ EXP_ST void read_bitmap(u8* fname) {
 
   if (fd < 0) PFATAL("Unable to open '%s'", fname);
 
-  ck_read(fd, virgin_bits, Dyn_Map_Size, fname);
+  ck_read(fd, virgin_bits, MAP_SIZE, fname);
 
   close(fd);
 
@@ -1069,14 +1067,14 @@ static inline u8 has_new_bits(u8* virgin_map) {
   u64* current = (u64*)trace_bits;
   u64* virgin  = (u64*)virgin_map;
 
-  u32  i = (Dyn_Map_Size >> 3);
+  u32  i = (MAP_SIZE >> 3);
 
 #else
 
   u32* current = (u32*)trace_bits;
   u32* virgin  = (u32*)virgin_map;
 
-  u32  i = (Dyn_Map_Size >> 2);
+  u32  i = (MAP_SIZE >> 2);
 
 #endif /* ^__x86_64__ */
 
@@ -1138,7 +1136,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 static u32 count_bits(u8* mem) {
 
   u32* ptr = (u32*)mem;
-  u32  i   = (Dyn_Map_Size >> 2);
+  u32  i   = (MAP_SIZE >> 2);
   u32  ret = 0;
 
   while (i--) {
@@ -1173,7 +1171,7 @@ static u32 count_bits(u8* mem) {
 static u32 count_bytes(u8* mem) {
 
   u32* ptr = (u32*)mem;
-  u32  i   = (Dyn_Map_Size >> 2);
+  u32  i   = (MAP_SIZE >> 2);
   u32  ret = 0;
 
   while (i--) {
@@ -1199,7 +1197,7 @@ static u32 count_bytes(u8* mem) {
 static u32 count_non_255_bytes(u8* mem) {
 
   u32* ptr = (u32*)mem;
-  u32  i   = (Dyn_Map_Size >> 2);
+  u32  i   = (MAP_SIZE >> 2);
   u32  ret = 0;
 
   while (i--) {
@@ -1238,7 +1236,7 @@ static const u8 simplify_lookup[256] = {
 
 static void simplify_trace(u64* mem) {
 
-  u32 i = Dyn_Map_Size >> 3;
+  u32 i = MAP_SIZE >> 3;
 
   while (i--) {
 
@@ -1269,7 +1267,7 @@ static void simplify_trace(u64* mem) {
 
 static void simplify_trace(u32* mem) {
 
-  u32 i = Dyn_Map_Size >> 2;
+  u32 i = MAP_SIZE >> 2;
 
   while (i--) {
 
@@ -1332,7 +1330,7 @@ EXP_ST void init_count_class16(void) {
 
 static inline void classify_counts(u64* mem) {
 
-  u32 i = Dyn_Map_Size >> 3;
+  u32 i = MAP_SIZE >> 3;
 
   while (i--) {
 
@@ -1359,7 +1357,7 @@ static inline void classify_counts(u64* mem) {
 
 static inline void classify_counts(u32* mem) {
 
-  u32 i = Dyn_Map_Size >> 2;
+  u32 i = MAP_SIZE >> 2;
 
   while (i--) {
 
@@ -1400,7 +1398,7 @@ static void minimize_bits(u8* dst, u8* src) {
 
   u32 i = 0;
 
-  while (i < Dyn_Map_Size) {
+  while (i < MAP_SIZE) {
 
     if (*(src++)) dst[i >> 3] |= 1 << (i & 7);
     i++;
@@ -1428,7 +1426,7 @@ static void update_bitmap_score(struct queue_entry* q) {
   /* For every byte set in trace_bits[], see if there is a previous winner,
      and how it compares to us. */
 
-  for (i = 0; i < Dyn_Map_Size; i++)
+  for (i = 0; i < MAP_SIZE; i++)
 
     if (trace_bits[i]) {
 
@@ -1454,7 +1452,7 @@ static void update_bitmap_score(struct queue_entry* q) {
        q->tc_ref++;
 
        if (!q->trace_mini) {
-         q->trace_mini = ck_alloc(Dyn_Map_Size >> 3);
+         q->trace_mini = ck_alloc(MAP_SIZE >> 3);
          minimize_bits(q->trace_mini, trace_bits);
        }
 
@@ -1474,15 +1472,15 @@ static void update_bitmap_score(struct queue_entry* q) {
 static void cull_queue(void) {
 
   struct queue_entry* q;
-  static u8 *temp_v; //[Dyn_Map_Size >> 3];
-  temp_v = (u8*)ck_alloc(sizeof(u8) * (Dyn_Map_Size >> 3)); 
+  static u8 temp_v[MAP_SIZE >> 3];
+  //temp_v = (u8*)ck_alloc(sizeof(u8) * (Dyn_Map_Size >> 3)); 
   u32 i;
 
   if (dumb_mode || !score_changed) return;
 
   score_changed = 0;
 
-  memset(temp_v, 255, Dyn_Map_Size >> 3);
+  memset(temp_v, 255, MAP_SIZE >> 3);
 
   queued_favored  = 0;
   pending_favored = 0;
@@ -1497,10 +1495,10 @@ static void cull_queue(void) {
   /* Let's see if anything in the bitmap isn't captured in temp_v.
      If yes, and if it has a top_rated[] contender, let's use it. */
 
-  for (i = 0; i < Dyn_Map_Size; i++)
+  for (i = 0; i < MAP_SIZE; i++)
     if (top_rated[i] && (temp_v[i >> 3] & (1 << (i & 7)))) {
 
-      u32 j = Dyn_Map_Size >> 3;
+      u32 j = MAP_SIZE >> 3;
 
       /* Remove all bits belonging to the current entry from temp_v. */
 
@@ -1531,12 +1529,12 @@ EXP_ST void setup_shm(void) {
 
   u8* shm_str;
 
-  if (!in_bitmap) memset(virgin_bits, 255, Dyn_Map_Size);
+  if (!in_bitmap) memset(virgin_bits, 255, MAP_SIZE);
 
-  memset(virgin_tmout, 255, Dyn_Map_Size);
-  memset(virgin_crash, 255, Dyn_Map_Size);
+  memset(virgin_tmout, 255, MAP_SIZE);
+  memset(virgin_crash, 255, MAP_SIZE);
 
-  shm_id = shmget(IPC_PRIVATE, Dyn_Map_Size, IPC_CREAT | IPC_EXCL | 0600);
+  shm_id = shmget(IPC_PRIVATE, MAP_SIZE, IPC_CREAT | IPC_EXCL | 0600);
 
   if (shm_id < 0) PFATAL("shmget() failed");
 
@@ -2460,7 +2458,7 @@ static u8 run_target(char** argv, u32 timeout) {
      must prevent any earlier operations from venturing into that
      territory. */
 
-  memset(trace_bits, 0, Dyn_Map_Size);
+  memset(trace_bits, 0, MAP_SIZE);
   MEM_BARRIER();
 
   /* If we're running in "dumb" mode, we can't rely on the fork server
@@ -2719,8 +2717,8 @@ static void show_stats(void);
 static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
                          u32 handicap, u8 from_queue) {
 
-  static u8 *first_trace; //[Dyn_Map_Size];
-  first_trace = (u8*)ck_alloc(sizeof(u8) * Dyn_Map_Size);
+  static u8 first_trace[MAP_SIZE];
+  //first_trace = (u8*)ck_alloc(sizeof(u8) * Dyn_Map_Size);
 
   u8  fault = 0, new_bits = 0, var_detected = 0,
       first_run = (q->exec_cksum == 0);
@@ -2750,7 +2748,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
   if (dumb_mode != 1 && !no_forkserver && !forksrv_pid)
     init_forkserver(argv);
 
-  if (q->exec_cksum) memcpy(first_trace, trace_bits, Dyn_Map_Size);
+  if (q->exec_cksum) memcpy(first_trace, trace_bits, MAP_SIZE);
 
   start_us = get_cur_time_us();
 
@@ -2774,7 +2772,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
       goto abort_calibration;
     }
 
-    cksum = hash32(trace_bits, Dyn_Map_Size, HASH_CONST);
+    cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
 
     if (q->exec_cksum != cksum) {
 
@@ -2785,7 +2783,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
         u32 i;
 
-        for (i = 0; i < Dyn_Map_Size; i++) {
+        for (i = 0; i < MAP_SIZE; i++) {
 
           if (!var_bytes[i] && first_trace[i] != trace_bits[i]) {
 
@@ -2801,7 +2799,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
       } else {
 
         q->exec_cksum = cksum;
-        memcpy(first_trace, trace_bits, Dyn_Map_Size);
+        memcpy(first_trace, trace_bits, MAP_SIZE);
 
       }
 
@@ -2872,7 +2870,7 @@ static void check_map_coverage(void) {
 
   if (count_bytes(trace_bits) < 100) return;
 
-  for (i = (1 << (MAP_SIZE_POW2 - 1)); i < Dyn_Map_Size; i++)
+  for (i = (1 << (MAP_SIZE_POW2 - 1)); i < MAP_SIZE; i++)
     if (trace_bits[i]) return;
 
   WARNF("Recompile binary with newer version of afl to improve coverage!");
@@ -3311,7 +3309,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   s32 fd;
   u8  keeping = 0, res;
 
-  u32 cur_cksum = hash32(trace_bits, Dyn_Map_Size, HASH_CONST);
+  u32 cur_cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
   u16 path_id = (u16)(cur_cksum & (MAX_PATH - 1));
 
   if (fault == crash_mode) {
@@ -3323,7 +3321,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
       if (crash_mode) total_crashes++;
 
       pstat = OldEdgePathIdentify(queue_cur, path_id, cur_cksum);
-      if (pstat == OLD_COLSN || pstat == OLD_NO_COLSN || pstat == NEW_VAR){ //no new path
+      if (pstat == OLD_COLSN || pstat == OLD_NO_COLSN || pstat == SEED_VAR){ //no new path
           return 0;
       }
     }
@@ -3347,7 +3345,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
       queued_with_cov++;
     }
 
-    queue_top->exec_cksum = cur_cksum; //hash32(trace_bits, Dyn_Map_Size, HASH_CONST);
+    queue_top->exec_cksum = cur_cksum; //hash32(trace_bits, MAP_SIZE, HASH_CONST);
 
     /* Try to calibrate inline; this also calls update_bitmap_score() when
        successful. */
@@ -4125,7 +4123,7 @@ static void show_stats(void) {
   /* Do some bitmap stats. */
 
   t_bytes = count_non_255_bytes(virgin_bits);
-  t_byte_ratio = ((double)t_bytes * 100) / Dyn_Map_Size;
+  t_byte_ratio = ((double)t_bytes * 100) / MAP_SIZE;
 
   if (t_bytes) 
     stab_ratio = 100 - ((double)var_byte_count) * 100 / t_bytes;
@@ -4165,7 +4163,7 @@ static void show_stats(void) {
 
   /* Compute some mildly useful bitmap stats. */
 
-  t_bits = (Dyn_Map_Size << 3) - count_bits(virgin_bits);
+  t_bits = (MAP_SIZE << 3) - count_bits(virgin_bits);
 
   /* Now, for the visuals... */
 
@@ -4303,7 +4301,7 @@ static void show_stats(void) {
   SAYF(bV bSTOP "  now processing : " cRST "%-17s " bSTG bV bSTOP, tmp);
 
   sprintf(tmp, "%0.02f%% / %0.02f%%", ((double)queue_cur->bitmap_size) * 
-          100 / Dyn_Map_Size, t_byte_ratio);
+          100 / MAP_SIZE, t_byte_ratio);
 
   SAYF("    map density : %s%-21s " bSTG bV "\n", t_byte_ratio > 70 ? cLRD : 
        ((t_bytes < 200 && !dumb_mode) ? cPIN : cRST), tmp);
@@ -4666,8 +4664,8 @@ static u32 next_p2(u32 val) {
 static u8 trim_case(char** argv, struct queue_entry* q, u8* in_buf) {
 
   static u8 tmp[64];
-  static u8 *clean_trace; //[Dyn_Map_Size];
-  clean_trace = (u8*)ck_alloc(sizeof(u8) * Dyn_Map_Size);
+  static u8 clean_trace[MAP_SIZE];
+  //clean_trace = (u8*)ck_alloc(sizeof(u8) * Dyn_Map_Size);
 
   u8  needs_write = 0, fault = 0;
   u32 trim_exec = 0;
@@ -4715,7 +4713,7 @@ static u8 trim_case(char** argv, struct queue_entry* q, u8* in_buf) {
 
       /* Note that we don't keep track of crashes or hangs here; maybe TODO? */
 
-      cksum = hash32(trace_bits, Dyn_Map_Size, HASH_CONST);
+      cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
 
       /* If the deletion had no impact on the trace, make it permanent. This
          isn't perfect for variable-path inputs, but we're just making a
@@ -4738,7 +4736,7 @@ static u8 trim_case(char** argv, struct queue_entry* q, u8* in_buf) {
         if (!needs_write) {
 
           needs_write = 1;
-          memcpy(clean_trace, trace_bits, Dyn_Map_Size);
+          memcpy(clean_trace, trace_bits, MAP_SIZE);
 
         }
 
@@ -4771,7 +4769,7 @@ static u8 trim_case(char** argv, struct queue_entry* q, u8* in_buf) {
     ck_write(fd, in_buf, q->len, q->fname);
     close(fd);
 
-    memcpy(trace_bits, clean_trace, Dyn_Map_Size);
+    memcpy(trace_bits, clean_trace, MAP_SIZE);
     update_bitmap_score(q);
 
   }
@@ -5353,7 +5351,7 @@ static u8 fuzz_one(char** argv) {
 
     if (!dumb_mode && (stage_cur & 7) == 7) {
 
-      u32 cksum = hash32(trace_bits, Dyn_Map_Size, HASH_CONST);
+      u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
 
       if (stage_cur == stage_max - 1 && cksum == prev_cksum) {
 
@@ -5509,7 +5507,7 @@ static u8 fuzz_one(char** argv) {
          without wasting time on checksums. */
 
       if (!dumb_mode && len >= EFF_MIN_LEN)
-        cksum = hash32(trace_bits, Dyn_Map_Size, HASH_CONST);
+        cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
       else
         cksum = ~queue_cur->exec_cksum;
 
@@ -7288,7 +7286,7 @@ EXP_ST void setup_dirs_fds(void) {
   if (mkdir(tmp, 0700)) PFATAL("Unable to create '%s'", tmp);
   ck_free(tmp);
   becfuzz_dir = alloc_printf("%s/BECFuzz", out_dir);
-  inst_binary = alloc_printf("%s/BECFuzz/%s.inst", out_dir, basename(target_path));
+  inst_binary = alloc_printf("%s/BECFuzz/target.inst", out_dir);
 
   /* Queue directory for any starting & discovered paths. */
 
@@ -7372,7 +7370,7 @@ EXP_ST void setup_dirs_fds(void) {
   if (!plot_file) PFATAL("fdopen() failed");
 
   fprintf(plot_file, "# unix_time, cycles_done, cur_path, paths_total, "
-                     "pending_total, pending_favs, Dyn_Map_Size, unique_crashes, "
+                     "pending_total, pending_favs, MAP_SIZE, unique_crashes, "
                      "unique_hangs, max_depth, execs_per_sec\n");
                      /* ignore errors */
 
@@ -8050,7 +8048,7 @@ int main(int argc, char** argv) {
 
   setup_post();
 
-  //setup_shm();
+  setup_shm();
   init_count_class16();
 
   setup_dirs_fds();
@@ -8070,10 +8068,10 @@ int main(int argc, char** argv) {
   check_binary(argv[optind]);
   
     // instrument binary; get the value of Dyn_Map_Size
-  instrument_binary(); //TODO-rosen
+  //instrument_binary(); 
   // malloc memories for maps
-  malloc_maps();
-  setup_shm();
+  //malloc_maps();
+  //setup_shm();
   
 
   start_time = get_cur_time();
@@ -8187,6 +8185,8 @@ stop_fuzzing:
   destroy_extras();
   ck_free(target_path);
   ck_free(sync_id);
+  ck_free(becfuzz_dir);
+  ck_free(inst_binary);
 
   alloc_report();
 

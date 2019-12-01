@@ -16,22 +16,13 @@
 
 [TODO]
 becfuzz-afl.c
-##1. read max conditional and total from file, chenge MAP_SIZE
-2. save_if_interest(): cancel the hit-count seeds
-3. path checksum: key = cksum/65536, use collision chain; consider var_bytes in becfuzz-afl.c
-    q->var_behavior = 1;
-    save_if_interesting();
-    calibrate_case();
+1. seperate the instrumentation and fuzzing
+    instruemnt the binary using a program other than afl;
+    after instrument, running afl;
+    use shell to run them;
+    compile several versions of afl, each has different MAP_SIZE;
     
-    top_chain
-    EXP_ST u8 path_hash[MAX_PATH]; /* hash table for path indentify */
-    EXP_ST u8 path_collide[MAX_PATH];
-4. change add_to_queue() to support path hash
-5. create a dir for becfuzz outputs
 
-            struct collide_path * c = ck_alloc(sizeof(struct collide_path));
-            cp->next = c;
-            c->coll_cksum = cksum;
 
  
 [INSTALL]

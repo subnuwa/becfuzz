@@ -100,10 +100,10 @@ void initAflForkServer(u32 max_conditional, const char* indirect_file)
         
         int stMsgLen = read(FORKSRV_FD, &temp_data, 4);
         if(stMsgLen != 4) {
-            /* we use a status message length 2 to terminate the fork server. */
-            if(stMsgLen == 2){
-                exit(EXIT_SUCCESS);
-            }
+            // /* we use a status message length 2 to terminate the fork server. */
+            // if(stMsgLen == 2){
+            //     exit(EXIT_SUCCESS);
+            // }
 				
             printf("Error reading fork server %x\n",temp_data);
             return;
