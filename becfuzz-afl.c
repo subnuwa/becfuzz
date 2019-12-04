@@ -1038,6 +1038,30 @@ EXP_ST void destroy_queue(void) {
 
   }
 
+  // destroy chains  
+
+    for (int i=0; i< MAX_PATH; i++){
+        struct collide_path *pc, *tc, *cc;
+        while(path_chain[i]){
+            pc = path_chain[i]->next;
+            ck_free(path_chain[i]);
+            path_chain[i] = pc;
+        }
+
+        while(tmout_chain[i]){
+            tc = tmout_chain[i]->next;
+            ck_free(tmout_chain[i]);
+            tmout_chain[i] = tc;
+        }
+
+        while(crash_chain[i]){
+            cc = crash_chain[i]->next;
+            ck_free(crash_chain[i]);
+            crash_chain[i] = cc;
+        }
+    }
+
+
 }
 
 
