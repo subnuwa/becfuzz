@@ -1,5 +1,5 @@
 /*
-   american fuzzy lop - fuzzer code
+   BECFuzz - fuzzer code
    --------------------------------
 
    Written and maintained by Michal Zalewski <lcamtuf@google.com>
@@ -56,7 +56,7 @@
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <sys/file.h>
-#include <malloc.h> //rosen-test
+
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined (__OpenBSD__)
 #  include <sys/sysctl.h>
@@ -86,20 +86,26 @@
 #endif /* ^AFL_LIB */
 
 /********************** BECFuzz Vars *************************/
-EXP_ST u8 *inst_binary,           /* path to instrumented binary */
-          *becfuzz_dir;          /* the output dir for becfuzz */
+// EXP_ST u8 *inst_binary,           /* path to instrumented binary */
+//           *becfuzz_dir;          /* the output dir for becfuzz */
 // EXP_ST u32 Dyn_Map_Size = 1 ,     /* the map size set according to instrument result */
 //         Dyn_Conditional_Size = 1; /* the number of conditional edges */
 
 EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
            virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */
            virgin_crash[MAP_SIZE];    /* Bits we haven't seen in crashes  */
+EXP_ST u8* edge_trace;                /* trace_bits without hit-counts */
 
 static u8  var_bytes[MAP_SIZE];       /* Bytes that appear to be variable */
 
-EXP_ST u8 path_hash[MAX_PATH]; /* hash table for path indentify*/
+EXP_ST u8 path_hash[MAX_PATH], /* hash table for path indentify*/
+          tmout_hash[MAX_PATH], // for unique tmout 
+          crash_hash[MAX_PATH]; // for unique crash /* hash table for path indentify*/
                         /* 0: not found, 1: found, 2: collide */
 //EXP_ST u8 path_collide[MAX_PATH]; /* hash table for collided path indentify */
+
+
+
 
 /********************** AFL Vars *****************************/
 /* Lots of globals, but mostly for the status UI and other things where it
@@ -259,7 +265,8 @@ struct queue_entry {
       fs_redundant;                   /* Marked as redundant in the fs?   */
 
   u32 bitmap_size,                    /* Number of bits set in bitmap     */
-      exec_cksum;                     /* Checksum of the execution trace  */
+      exec_cksum,                     /* Checksum of the execution trace  */
+      pathid_cksum;                      /* Checksum for the path identify */
 
   u64 exec_us,                        /* Execution time (us)              */
       handicap,                       /* Number of queue cycles behind    */
@@ -269,8 +276,7 @@ struct queue_entry {
   u32 tc_ref;                         /* Trace bytes ref count            */
 
   struct queue_entry *next,           /* Next element, if any             */
-                     *next_100;       /* 100 elements ahead               */
-
+                     *next_100;       /* 100 elements ahead        */
 };
 
 static struct queue_entry *queue,     /* Fuzzing queue (linked list), head  */
@@ -288,7 +294,9 @@ struct collide_path{
     struct collide_path *next;         /* next element, if any   */
 };
 // hash chain for collided path; the top one in the chain
-static struct collide_path * top_chain[MAX_PATH]; 
+static struct collide_path *path_chain[MAX_PATH],
+                            *tmout_chain[MAX_PATH],
+                            *crash_chain[MAX_PATH];
 
 struct extra_data {
   u8* data;                           /* Dictionary token data            */
@@ -354,12 +362,12 @@ enum {
 /* path status */
 
 enum{
-    OLD_COLSN,      //0, old path with collision
-    OLD_NO_COLSN,   //1, old path without collision
-    NEW_COLSN,      //2, new path with collision
-    NEW_NO_COLSN,   //3, new path without collision
-    SEED_VAR,         //4, path with variance(e.g., randomness)
-    NEW_EDGE 
+    PS_OLD_COLSN,      //0, old path with collision
+    PS_OLD_NO_COLSN,   //1, old path without collision
+    PS_NEW_COLSN,      //2, new path with collision
+    PS_NEW_NO_COLSN,   //3, new path without collision
+    PS_SEED_VAR,         //4, path with variance(e.g., randomness)
+    PS_NONE
 };
 
 
@@ -523,7 +531,7 @@ static void bind_to_free_cpu(void) {
 
     SAYF("\n" cLRD "[-] " cRST
          "Uh-oh, looks like all %u CPU cores on your system are allocated to\n"
-         "    other instances of afl-fuzz (or similar CPU-locked tasks). Starting\n"
+         "    other instances of becfuzz-afl (or similar CPU-locked tasks). Starting\n"
          "    another fuzzer on this machine is probably a bad plan, but if you are\n"
          "    absolutely sure, you can set AFL_NO_AFFINITY and try again.\n",
          cpu_core_count);
@@ -650,29 +658,32 @@ void execute(char * tmp[], char * pid_name, int print_output){
 /* add a new path id
     q: the saved seed related to the new path
 */
-static void newPathInsert(struct queue_entry *q, u16 path_id, u32 cksum){
+static void newPathInsert(u8 pct_hash[], struct collide_path *pct_chain[], 
+                            struct queue_entry *new_q, u32 path_id, u32 cksum){
 
     struct collide_path *cur_cp = (struct collide_path *)ck_alloc(sizeof(struct collide_path));
     cur_cp->coll_index = path_id;
     cur_cp->coll_cksum = cksum;
-    cur_cp->coll_q = q;
+    cur_cp->coll_q = new_q;
     cur_cp->next = NULL;
 
-    if (path_hash[path_id] == 0){ //no collision
-        path_hash[path_id] = 1;
-        top_chain[path_id] = cur_cp;
+    if (pct_hash[path_id] == 0){ //no collision
+        pct_hash[path_id] = 1;
+        pct_chain[path_id] = cur_cp;
     } 
     else{ //collision, path_hash[path_id] = 1 or =2
-
-        path_hash[path_id] = 2;  //set to collision flag
-        if (top_chain[path_id] != NULL){ // should have value
-            struct collide_path *cpit = top_chain[path_id];
+        pct_hash[path_id] = 2;  //set to collision flag
+        if (pct_chain[path_id] != NULL){ // should always be true here
+            struct collide_path *cpit = pct_chain[path_id];
             while(cpit->next !=NULL){
                 cpit = cpit->next;
             }
-            
-            cpit->next = cur_cp;
-              
+            if(cpit->next == NULL){            
+                cpit->next = cur_cp;
+            }
+        }
+        else{ // just in case
+            PFATAL("path_chain should have value.");
         } 
     }
 
@@ -686,36 +697,54 @@ hash table and hash chain to identify paths;
             3: new path without collision
             4: new path caused by variance (e.g., randomness)
 */
-static u8 OldEdgePathIdentify(struct queue_entry *cur_q, u16 path_id, u32 cksum){
-    u8 newFlag;
+static u8 OldEdgePathIdentify(u8 pct_hash[], struct collide_path *pct_chain[], 
+                                struct queue_entry *cur_q, u32 path_id, u32 cksum){
+    u8 newFlag = PS_SEED_VAR; 
 
-    if (path_hash[path_id] == 0){ // a new path found in old edges
-        newFlag = NEW_NO_COLSN;    
+    if (pct_hash[path_id] == 0){ // a new path found in old edges
+        newFlag = PS_NEW_NO_COLSN;    
     }
-    else if (path_hash[path_id] == 2){ // path_id exists and collides
+    else if (pct_hash[path_id] == 1){ // path_id exists and not collides yet
+        if (!pct_chain[path_id]){
+            PFATAL("pct_chain should have value.");
+        } 
+        
+        if (pct_chain[path_id]->coll_cksum == cksum){
+            newFlag = PS_OLD_NO_COLSN;
+        }
+        else{
+            newFlag = PS_NEW_COLSN;
+        }
+               
+    }
+    else if (pct_hash[path_id] == 2){ // path_id exists and already collides
             //a new path collides?
-        struct collide_path *cp = top_chain[path_id];
-        while (cp){
+        if(!pct_chain[path_id]){
+          PFATAL("pct_chain should have value.");
+        }
+        struct collide_path *cp = pct_chain[path_id];
+        while (cp != NULL){
             if (cp->coll_cksum == cksum){ //old path with collision
-                newFlag = OLD_COLSN;
+                newFlag = PS_OLD_COLSN;
                 break;
             }
             cp = cp->next;
         }
-        if (!cp){ // new path with collision
-            newFlag = NEW_COLSN;
+        // NULL is not 0?
+        if (cp == NULL){ // new path with collision-rosen
+            newFlag = PS_NEW_COLSN;
         }   
     }
-    else{
-        newFlag = OLD_NO_COLSN;
-        
-    }
+
     
     /*if current seed has variance, 
         don't consider the cksum as a new one (remove randomness)*/
-    if (cur_q->var_behavior == 1){ 
-        newFlag = SEED_VAR;
-    }
+    if(cur_q){
+        if (cur_q->var_behavior == 1){ 
+            newFlag = PS_SEED_VAR;
+        }
+    }    
+    
 
     return newFlag;
 
@@ -1060,7 +1089,8 @@ EXP_ST void read_bitmap(u8* fname) {
    This function is called after every exec() on a fairly large buffer, so
    it needs to be fast. We do this in 32-bit and 64-bit flavors. */
 
-static inline u8 has_new_bits(u8* virgin_map) {
+static inline u8 has_new_bits(u8* virgin_map, u8 pct_hash[], 
+                            struct collide_path *pct_chain[], u32 path_id, u32 path_cksum) {
 
 #ifdef __x86_64__
 
@@ -1124,6 +1154,15 @@ static inline u8 has_new_bits(u8* virgin_map) {
   }
 
   if (ret && virgin_map == virgin_bits) bitmap_changed = 1;
+
+  if ((ret == 1) || (ret == 0)){ //no new edges
+      // one bit indicates an edge--rosen
+    u8 pstat = PS_NONE;
+    pstat = OldEdgePathIdentify(pct_hash, pct_chain, queue_cur, path_id, path_cksum);//rosen
+    if ((pstat == PS_NEW_COLSN) || (pstat == PS_NEW_NO_COLSN)){
+      ret = 3; //new path in old edges
+    }
+  }
 
   return ret;
 
@@ -1528,6 +1567,8 @@ static void cull_queue(void) {
 EXP_ST void setup_shm(void) {
 
   u8* shm_str;
+
+  edge_trace = ck_alloc(MAP_SIZE >> 3); //for path trace
 
   if (!in_bitmap) memset(virgin_bits, 255, MAP_SIZE);
 
@@ -2339,7 +2380,7 @@ EXP_ST void init_forkserver(char** argv) {
 #ifdef __APPLE__
 
            "    - On MacOS X, the semantics of fork() syscalls are non-standard and may\n"
-           "      break afl-fuzz performance optimizations when running platform-specific\n"
+           "      break becfuzz-afl performance optimizations when running platform-specific\n"
            "      targets. To fix this, set AFL_NO_FORKSRV=1 in the environment.\n\n"
 
 #endif /* __APPLE__ */
@@ -2373,7 +2414,7 @@ EXP_ST void init_forkserver(char** argv) {
 #ifdef __APPLE__
 
            "    - On MacOS X, the semantics of fork() syscalls are non-standard and may\n"
-           "      break afl-fuzz performance optimizations when running platform-specific\n"
+           "      break becfuzz-afl performance optimizations when running platform-specific\n"
            "      targets. To fix this, set AFL_NO_FORKSRV=1 in the environment.\n\n"
 
 #endif /* __APPLE__ */
@@ -2729,6 +2770,9 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
   u32 use_tmout = exec_tmout;
   u8* old_sn = stage_name;
 
+  u8 path_hnb;
+  u32 path_cksum = 0, path_id = 0;//rosen
+
   /* Be a bit more generous about timeouts when resuming sessions, or when
      trying to calibrate already-added finds. This helps avoid trouble due
      to intermittent latency. */
@@ -2751,6 +2795,16 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
   if (q->exec_cksum) memcpy(first_trace, trace_bits, MAP_SIZE);
 
   start_us = get_cur_time_us();
+
+  /* run for new path in old edges- rosen*/
+  write_to_testcase(use_mem, q->len);
+  fault = run_target(argv, use_tmout);
+  memset(edge_trace, 0, MAP_SIZE>>3);
+  minimize_bits(edge_trace, trace_bits);
+  path_cksum = hash32(edge_trace, MAP_SIZE >>3, HASH_CONST); //rosen
+  path_id = path_cksum % (MAX_PATH);  //remainder
+
+  path_hnb = has_new_bits(virgin_bits, path_hash, path_chain, path_id, path_cksum); //rosen
 
   for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
 
@@ -2776,7 +2830,12 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
     if (q->exec_cksum != cksum) {
 
-      u8 hnb = has_new_bits(virgin_bits);
+      memset(edge_trace, 0, MAP_SIZE>>3);
+      minimize_bits(edge_trace, trace_bits);
+
+      path_cksum = hash32(edge_trace, MAP_SIZE >>3, HASH_CONST); //rosen-????
+      path_id = path_cksum % (MAX_PATH);  //remainder
+      u8 hnb = has_new_bits(virgin_bits, path_hash, path_chain, path_id, path_cksum); //rosen
       if (hnb > new_bits) new_bits = hnb;
 
       if (q->exec_cksum) {
@@ -2823,6 +2882,10 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
   total_bitmap_size += q->bitmap_size;
   total_bitmap_entries++;
 
+  if ((path_hnb == 2) || (path_hnb == 3)){ //rosen
+        newPathInsert(path_hash, path_chain, q, path_id, path_cksum);
+      }
+
   update_bitmap_score(q);
 
   /* If this case didn't result in new output from the instrumentation, tell
@@ -2833,10 +2896,17 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
 abort_calibration:
 
-  if (new_bits == 2 && !q->has_new_cov) {
-    q->has_new_cov = 1;
-    queued_with_cov++;
+  if (!q->has_new_cov) { //rosen
+    if (new_bits == 2){
+      q->has_new_cov = 1;
+      queued_with_cov++;
+    }
+    else if (new_bits == 3){
+      q->has_new_cov = 2;
+      queued_with_cov++;
+    }    
   }
+ 
 
   /* Mark variable paths. */
 
@@ -2931,7 +3001,7 @@ static void perform_dry_run(char** argv) {
         if (timeout_given) {
 
           /* The -t nn+ syntax in the command line sets timeout_given to '2' and
-             instructs afl-fuzz to tolerate but skip queue entries that time
+             instructs becfuzz-afl to tolerate but skip queue entries that time
              out. */
 
           if (timeout_given > 1) {
@@ -3004,7 +3074,7 @@ static void perform_dry_run(char** argv) {
 #ifdef __APPLE__
   
                "    - On MacOS X, the semantics of fork() syscalls are non-standard and may\n"
-               "      break afl-fuzz performance optimizations when running platform-specific\n"
+               "      break becfuzz-afl performance optimizations when running platform-specific\n"
                "      binaries. To fix this, set AFL_NO_FORKSRV=1 in the environment.\n\n"
 
 #endif /* __APPLE__ */
@@ -3026,7 +3096,7 @@ static void perform_dry_run(char** argv) {
 #ifdef __APPLE__
   
                "    - On MacOS X, the semantics of fork() syscalls are non-standard and may\n"
-               "      break afl-fuzz performance optimizations when running platform-specific\n"
+               "      break becfuzz-afl performance optimizations when running platform-specific\n"
                "      binaries. To fix this, set AFL_NO_FORKSRV=1 in the environment.\n\n"
 
 #endif /* __APPLE__ */
@@ -3276,13 +3346,13 @@ static void write_crash_readme(void) {
 
              "%s\n\n"
 
-             "If you can't reproduce a bug outside of afl-fuzz, be sure to set the same\n"
+             "If you can't reproduce a bug outside of becfuzz-afl, be sure to set the same\n"
              "memory limit. The limit used for this fuzzing session was %s.\n\n"
 
              "Need a tool to minimize test cases before investigating the crashes or sending\n"
              "them to a vendor? Check out the afl-tmin that comes with the fuzzer!\n\n"
 
-             "Found any cool bugs in open-source tools using afl-fuzz? If yes, please drop\n"
+             "Found any cool bugs in open-source tools using becfuzz-afl? If yes, please drop\n"
              "me a mail at <lcamtuf@coredump.cx> once the issues are fixed - I'd love to\n"
              "add your finds to the gallery at:\n\n"
 
@@ -3304,26 +3374,25 @@ static void write_crash_readme(void) {
 static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
   u8  *fn = "";
-  u8  hnb, //edge state
-      pstat; // path state
+  u8  hnb; //edge state
+
   s32 fd;
   u8  keeping = 0, res;
 
-  u32 cur_cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
-  u16 path_id = (u16)(cur_cksum & (MAX_PATH - 1));
+  // one bit indicates an edge
+  memset(edge_trace, 0, MAP_SIZE >> 3);
+  minimize_bits(edge_trace, trace_bits);
+  u32 path_cksum = hash32(edge_trace, MAP_SIZE >> 3, HASH_CONST); //rosen
+  u32 path_id = path_cksum % MAX_PATH;  //remainder
 
   if (fault == crash_mode) {
     // crash_mode = 2 if crash mode; else crash_mode=0, normal mode 
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
-
-    if (!(hnb = has_new_bits(virgin_bits))) {//no new edges
+    hnb = has_new_bits(virgin_bits, path_hash, path_chain, path_id, path_cksum);
+    if (!hnb) {//no new edges
       if (crash_mode) total_crashes++;
-
-      pstat = OldEdgePathIdentify(queue_cur, path_id, cur_cksum);
-      if (pstat == OLD_COLSN || pstat == OLD_NO_COLSN || pstat == SEED_VAR){ //no new path
-          return 0;
-      }
+        return 0;
     }
    
 
@@ -3340,22 +3409,24 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
     add_to_queue(fn, len, 0);
 
-    if (hnb == 2) {
-      queue_top->has_new_cov = 1;
-      queued_with_cov++;
+
+        //rosen
+    if (hnb == 2){
+        queue_top->has_new_cov = 1; // new edge
+        queued_with_cov++;
+    }else if (hnb == 3){
+        queue_top->has_new_cov = 2; // new path in old edges
+        queued_with_cov++;
     }
 
-    queue_top->exec_cksum = cur_cksum; //hash32(trace_bits, MAP_SIZE, HASH_CONST);
+    queue_top->exec_cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+    queue_top->pathid_cksum = path_cksum;
 
     /* Try to calibrate inline; this also calls update_bitmap_score() when
        successful. */
 
     res = calibrate_case(argv, queue_top, mem, queue_cycle - 1, 0);
-
-    /* new path under different situations */
-    
-    newPathInsert(queue_top, path_id, cur_cksum);
-    
+ 
 
     if (res == FAULT_ERROR)
       FATAL("Unable to execute target application");
@@ -3390,11 +3461,12 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
         simplify_trace((u32*)trace_bits);
 #endif /* ^__x86_64__ */
 
-        if (!has_new_bits(virgin_tmout)) return keeping;
+        if (!has_new_bits(virgin_tmout, tmout_hash, tmout_chain, path_id, path_cksum)) return keeping;
 
       }
 
       unique_tmouts++;
+      newPathInsert(tmout_hash, tmout_chain, queue_cur, path_id, path_cksum); //rosen
 
       /* Before saving, we make sure that it's a genuine hang by re-running
          the target with a more generous timeout (unless the default timeout
@@ -3454,7 +3526,7 @@ keep_as_crash:
         simplify_trace((u32*)trace_bits);
 #endif /* ^__x86_64__ */
 
-        if (!has_new_bits(virgin_crash)) return keeping;
+        if (!has_new_bits(virgin_crash, crash_hash, crash_chain, path_id, path_cksum)) return keeping;  //rosen - unique crash
 
       }
 
@@ -3473,6 +3545,7 @@ keep_as_crash:
 #endif /* ^!SIMPLE_FILES */
 
       unique_crashes++;
+      newPathInsert(crash_hash, crash_chain, queue_cur, path_id, path_cksum);
 
       last_crash_time = get_cur_time();
       last_crash_execs = total_execs;
@@ -3837,7 +3910,7 @@ static void maybe_delete_out_dir(void) {
 
     SAYF("\n" cLRD "[-] " cRST
          "Looks like the job output directory is being actively used by another\n"
-         "    instance of afl-fuzz. You will need to choose a different %s\n"
+         "    instance of becfuzz-afl. You will need to choose a different %s\n"
          "    or stop the other process first.\n",
          sync_id ? "fuzzer ID" : "output location");
 
@@ -3865,7 +3938,7 @@ static void maybe_delete_out_dir(void) {
 
       SAYF("\n" cLRD "[-] " cRST
            "The job output directory already exists and contains the results of more\n"
-           "    than %u minutes worth of fuzzing. To avoid data loss, afl-fuzz will *NOT*\n"
+           "    than %u minutes worth of fuzzing. To avoid data loss, becfuzz-afl will *NOT*\n"
            "    automatically delete this data for you.\n\n"
 
            "    If you wish to start a new session, remove or rename the directory manually,\n"
@@ -4195,7 +4268,7 @@ static void show_stats(void) {
 
   sprintf(tmp + banner_pad, "%s " cLCY VERSION cLGN
           " (%s)",  crash_mode ? cPIN "peruvian were-rabbit" : 
-          cYEL "american fuzzy lop", use_banner);
+          cYEL "BECFuzz", use_banner);
 
   SAYF("\n%s\n\n", tmp);
 
@@ -4951,7 +5024,7 @@ static u32 calculate_score(struct queue_entry* q) {
 
 /* Helper function to see if a particular change (xor_val = old ^ new) could
    be a product of deterministic bit flips with the lengths and stepovers
-   attempted by afl-fuzz. This is used to avoid dupes in some of the
+   attempted by becfuzz-afl. This is used to avoid dupes in some of the
    deterministic fuzzing operations that follow bit flips. We also
    return 1 if xor_val is zero, which implies that the old and attempted new
    values are identical and the exec would be a waste of time. */
@@ -7282,11 +7355,11 @@ EXP_ST void setup_dirs_fds(void) {
 
   /*BECFuzz dir*/
 
-  tmp = alloc_printf("%s/BECFuzz", out_dir);
-  if (mkdir(tmp, 0700)) PFATAL("Unable to create '%s'", tmp);
-  ck_free(tmp);
-  becfuzz_dir = alloc_printf("%s/BECFuzz", out_dir);
-  inst_binary = alloc_printf("%s/BECFuzz/target.inst", out_dir);
+//   tmp = alloc_printf("%s/BECFuzz", out_dir);
+//   if (mkdir(tmp, 0700)) PFATAL("Unable to create '%s'", tmp);
+//   ck_free(tmp);
+//   becfuzz_dir = alloc_printf("%s/BECFuzz", out_dir);
+//   inst_binary = alloc_printf("%s/BECFuzz/target.inst", out_dir);
 
   /* Queue directory for any starting & discovered paths. */
 
@@ -7501,14 +7574,14 @@ static void check_cpu_governor(void) {
        "Whoops, your system uses on-demand CPU frequency scaling, adjusted\n"
        "    between %llu and %llu MHz. Unfortunately, the scaling algorithm in the\n"
        "    kernel is imperfect and can miss the short-lived processes spawned by\n"
-       "    afl-fuzz. To keep things moving, run these commands as root:\n\n"
+       "    becfuzz-afl. To keep things moving, run these commands as root:\n\n"
 
        "    cd /sys/devices/system/cpu\n"
        "    echo performance | tee cpu*/cpufreq/scaling_governor\n\n"
 
        "    You can later go back to the original state by replacing 'performance' with\n"
        "    'ondemand'. If you don't want to change the settings, set AFL_SKIP_CPUFREQ\n"
-       "    to make afl-fuzz skip this check - but expect some performance drop.\n",
+       "    to make becfuzz-afl skip this check - but expect some performance drop.\n",
        min / 1024, max / 1024);
 
   FATAL("Suboptimal CPU scaling governor");
@@ -7821,7 +7894,7 @@ int main(int argc, char** argv) {
   struct timeval tv;
   struct timezone tz;
 
-  SAYF(cCYA "afl-fuzz " cBRI VERSION cRST " by <lcamtuf@google.com>\n");
+  SAYF(cCYA "becfuzz-afl " cBRI VERSION cRST " by <lcamtuf@google.com>\n");
 
   doc_path = access(DOC_PATH, F_OK) ? "docs" : DOC_PATH;
 
@@ -8185,8 +8258,9 @@ stop_fuzzing:
   destroy_extras();
   ck_free(target_path);
   ck_free(sync_id);
-  ck_free(becfuzz_dir);
-  ck_free(inst_binary);
+//   ck_free(becfuzz_dir);
+//   ck_free(inst_binary);
+  ck_free(edge_trace);
 
   alloc_report();
 

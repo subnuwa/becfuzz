@@ -16,13 +16,24 @@
 
 [TODO]
 becfuzz-afl.c
-1. seperate the instrumentation and fuzzing
-    instruemnt the binary using a program other than afl;
-    after instrument, running afl;
-    use shell to run them;
-    compile several versions of afl, each has different MAP_SIZE;
-    
+    1. seperate the instrumentation and fuzzing
+        1) instruemnt the binary using a program other than afl;
+        2) after instrument, running afl;
+        3) use shell to run them;
+        4) compile several versions of afl, each has different MAP_SIZE;
+            becfuzz-afl64 , afl128, afl256, afl512
+    2. check uniqe crash
+    ###. cksum: the trace_bit should not include hit-count
 
+BECFuzz.cpp
+    1. if max_map_size > 512k, set max_map_size=512k
+    2. the ID of conditional number should less than the max_map_size
+    3. size range [0,64k]->64k, (64k,128k]->128k, (128K,256k]->256k, (256k, 512k]->512k, (512k,)->say sorry
+    
+seed selection:
+    1. first choose the seed A with max number of edges (or randomly)
+    2. mutate the seed A: in splicing, choose the smallest editing distance seed B to do so
+    3. select anther seed to mutate: choose the largest editing distance seed C to mutate
 
  
 [INSTALL]
