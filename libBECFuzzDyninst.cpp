@@ -32,8 +32,9 @@
 #include "instUnmap.h"
 
 #include <experimental/filesystem>
-namespace fs = std::experimental::filesystem;
 
+using namespace std;
+namespace fs = std::experimental::filesystem;
 
 
 static u8* trace_bits;
@@ -164,7 +165,7 @@ TODO: 1. read indirect_ids if first execution;
       2. save (src_addr, des_addr) if new
   */
 void IndirectEdges(u64 src_addr, u64 des_addr, u32 max_map_size, u32 max_conditional, const char* addr_file){
-    
+
     //read assigned ids from indirect_ids only if it's the first execution
     if (indirect_ids.count(EDGE(src_addr, des_addr))){ // already exist
         auto itdl = indirect_ids.find(EDGE(src_addr, des_addr));
@@ -175,14 +176,16 @@ void IndirectEdges(u64 src_addr, u64 des_addr, u32 max_map_size, u32 max_conditi
         }
     }
     else{ 
-        /* indirect edge does not exist; find a new indirect edge;
+        /* indirect edge does not exist --> find a new indirect edge;
         add it to indirect_ids*/
         // in case some instrumentations are before forkserver
-        if (cur_max_id < (max_conditional-1)) cur_max_id = max_conditional-1;
+        if (cur_max_id < (max_conditional-1)) cur_max_id = max_conditional - 1;
         //assign a new id for the edge
         cur_max_id++;
         if (cur_max_id >= max_map_size) cur_max_id = max_map_size - 1; //don't overflow
+
         indirect_ids.insert(make_pair(EDGE(src_addr, des_addr), cur_max_id));
+
         if(trace_bits) {
             trace_bits[cur_max_id]++;
         }
@@ -190,7 +193,7 @@ void IndirectEdges(u64 src_addr, u64 des_addr, u32 max_map_size, u32 max_conditi
         ofstream indaddrs;
         indaddrs.open (addr_file, ios::out | ios::app | ios::binary); //write file
         if(indaddrs.is_open()){
-            indaddrs << src_addr << " " << des_addr << " " << cur_max_id<< endl; 
+            indaddrs << src_addr << " " << des_addr << " " << cur_max_id << endl; 
         }
         
     }

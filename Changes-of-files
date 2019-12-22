@@ -15,15 +15,19 @@
 
 
 [TODO]
+
+
 becfuzz-afl.c
     1. seperate the instrumentation and fuzzing
-        1) instruemnt the binary using a program other than afl;
-        2) after instrument, running afl;
-        3) use shell to run them;
+        ###1) instruemnt the binary using a program other than afl;
+        ###2) after instrument, running afl;
+        ###3) use shell to run them;
         4) compile several versions of afl, each has different MAP_SIZE;
             becfuzz-afl64 , afl128, afl256, afl512
-    2. check uniqe crash
+    ### only use the new paths in old edges when checking unique crashes
+    ### check uniqe crash
     ###. cksum: the trace_bit should not include hit-count
+
 
 BECFuzz.cpp
     1. if max_map_size > 512k, set max_map_size=512k

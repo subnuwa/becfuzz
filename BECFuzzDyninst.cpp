@@ -210,6 +210,8 @@ bool count_edges(BPatch_binaryEdit * appBin, BPatch_image *appImage,
         block->getInstructions(insns);
 
         //Dyninst::Address addr = insns.back().second;  //addr: equal to offset when it's binary rewrite
+
+
         Dyninst::InstructionAPI::Instruction insn = insns.back().first; 
         //Dyninst::InstructionAPI::Operation op = insn.getOperation();
         Dyninst::InstructionAPI::InsnCategory category = insn.getCategory();
@@ -359,18 +361,37 @@ bool edgeInstrument(BPatch_binaryEdit * appBin, BPatch_image *appImage,
                 
                 if(category == Dyninst::InstructionAPI::c_CallInsn) {//indirect call
                     vector<BPatch_point *> callPoints;
-                    appImage->findPoints(addr, callPoints); //use callPoints[0] as the instrument point
+                    appImage->findPoints(addr, callPoints);
+                    
                     instrumentIndirect(appBin, IndirectEdges, callPoints[0], addr, max_map_size, num_conditional, addr_id_file);
-
+                    // vector<BPatch_point *>::iterator callPt_iter;
+                    // for(callPt_iter = callPoints.begin(); callPt_iter != callPoints.end(); ++callPt_iter) {
+                        
+                    //     instrumentIndirect(appBin, IndirectEdges, *callPt_iter, addr, max_map_size, num_conditional, addr_id_file);                       
+                    // }
+                    
                 }
                 
                 else if(category == Dyninst::InstructionAPI::c_BranchInsn) {//indirect jump
-                    vector<BPatch_point *> callPoints;
-                    appImage->findPoints(addr, callPoints); //use callPoints[0] as the instrument point
-                    instrumentIndirect(appBin, IndirectEdges, callPoints[0], addr, max_map_size, num_conditional, addr_id_file);
-
-                                
+                    vector<BPatch_point *> jmpPoints;
+                    appImage->findPoints(addr, jmpPoints);
+                    
+                    instrumentIndirect(appBin, IndirectEdges, jmpPoints[0], addr, max_map_size, num_conditional, addr_id_file);
+                    // vector<BPatch_point *>::iterator jmpPt_iter;
+                    // for(jmpPt_iter = jmpPoints.begin(); jmpPt_iter != jmpPoints.end(); ++jmpPt_iter) {
+                    //     instrumentIndirect(appBin, IndirectEdges, *jmpPt_iter, addr, max_map_size, num_conditional, addr_id_file);
+                    // }
                 }
+                // 
+                // else if(category == Dyninst::InstructionAPI::c_ReturnInsn) {
+                //     vector<BPatch_point *> retPoints;
+                //     appImage->findPoints(addr, retPoints);
+
+                //     vector<BPatch_point *>::iterator retPt_iter;
+                //     for(retPt_iter = retPoints.begin(); retPt_iter != retPoints.end(); ++retPt_iter) {
+                //          instrumentIndirect(appBin, IndirectEdges, *retPt_iter, addr, max_map_size, num_conditional, addr_id_file);
+                //     }
+                // }
  
             }
         }
@@ -422,7 +443,7 @@ int main (int argc, char **argv){
 
     fs::path out_dir (reinterpret_cast<const char*>(becfuzz_dir)); // files for becfuzz results
     fs::path num_file = out_dir / NUM_EDGE_FILE; // out_dir: becfuzz outputs; max edges
-    fs::path addr_id_file = out_dir / INDIRECT_ADDR_ID; //indirect edge addrs and ids
+    fs::path addrs_ids_file = out_dir / INDIRECT_ADDR_ID; //indirect edge addrs and ids
 
     /* start instrumentation*/
     BPatch bpatch;
@@ -509,6 +530,7 @@ int main (int argc, char **argv){
     numedges.open (num_file.c_str(), ios::out | ios::app | ios::binary); //write file
     if(numedges.is_open()){
         numedges << num_conditional << " " << max_map_size << endl; 
+        numedges << num_indirect << endl;
     }
     numedges.close();    
     //TODO: fuzzer gets the values through pipe (or shared memory?)?
@@ -531,7 +553,7 @@ int main (int argc, char **argv){
         if(isSkipFuncs(funcName)) continue;
         //instrument at edges
         //if(!edgeInstrument(appBin, appImage, funcIter, funcName, addr_id_file)) return EXIT_FAILURE;
-        edgeInstrument(appBin, appImage, funcIter, funcName, addr_id_file);
+        edgeInstrument(appBin, appImage, funcIter, funcName, addrs_ids_file);
 
     }
 
@@ -546,7 +568,7 @@ int main (int argc, char **argv){
     // there should really be only one
     funcToPatch = funcs[0];
 
-    if(!insertForkServer (appBin, initAflForkServer, funcToPatch, num_conditional, addr_id_file)){
+    if(!insertForkServer (appBin, initAflForkServer, funcToPatch, num_conditional, addrs_ids_file)){
         cerr << "Could not insert init callback at main." << endl;
         return EXIT_FAILURE;
     }

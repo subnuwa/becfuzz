@@ -93,15 +93,18 @@
 
 EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
            virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */
-           virgin_crash[MAP_SIZE];    /* Bits we haven't seen in crashes  */
-EXP_ST u8* edge_trace;                /* trace_bits without hit-counts */
+           virgin_crash[MAP_SIZE],    /* Bits we haven't seen in crashes  */
+           virgin_new_in_old[MAP_SIZE];  /* Bits we haven't seen in new paths saved by old edges */
+
+EXP_ST u8 *edge_trace;                /* trace_bits without hit-counts */
+
 
 static u8  var_bytes[MAP_SIZE];       /* Bytes that appear to be variable */
 
 EXP_ST u8 path_hash[MAX_PATH], /* hash table for path indentify*/
-          tmout_hash[MAX_PATH], // for unique tmout 
           crash_hash[MAX_PATH]; // for unique crash /* hash table for path indentify*/
                         /* 0: not found, 1: found, 2: collide */
+                        //tmout_hash[MAX_PATH], // for unique tmout 
 //EXP_ST u8 path_collide[MAX_PATH]; /* hash table for collided path indentify */
 
 
@@ -182,6 +185,7 @@ EXP_ST u32 queued_paths,              /* Total number of queued testcases */
            queued_imported,           /* Items imported via -S            */
            queued_favored,            /* Paths deemed favorable           */
            queued_with_cov,           /* Paths with new coverage bytes    */
+           queued_new_in_old,         /* New paths in old edges   */
            pending_not_fuzzed,        /* Queued but not done yet          */
            pending_favored,           /* Pending favored paths            */
            cur_skipped_paths,         /* Abandoned inputs in cur cycle    */
@@ -265,8 +269,8 @@ struct queue_entry {
       fs_redundant;                   /* Marked as redundant in the fs?   */
 
   u32 bitmap_size,                    /* Number of bits set in bitmap     */
-      exec_cksum,                     /* Checksum of the execution trace  */
-      pathid_cksum;                      /* Checksum for the path identify */
+      exec_cksum;                     /* Checksum of the execution trace  */
+      
 
   u64 exec_us,                        /* Execution time (us)              */
       handicap,                       /* Number of queue cycles behind    */
@@ -293,9 +297,8 @@ struct collide_path{
     struct queue_entry *coll_q;         /* the info of collided path */
     struct collide_path *next;         /* next element, if any   */
 };
-// hash chain for collided path; the top one in the chain
-static struct collide_path *path_chain[MAX_PATH],
-                            *tmout_chain[MAX_PATH],
+// hash chain for collided path; the top one in the chain  //*tmout_chain[MAX_PATH],
+static struct collide_path *path_chain[MAX_PATH],                            
                             *crash_chain[MAX_PATH];
 
 struct extra_data {
@@ -643,17 +646,7 @@ void execute(char * tmp[], char * pid_name, int print_output){
 //     return;
 // }
 
-// malloc some global variables
-// static void malloc_maps(){
 
-//     virgin_bits = (u8*)ck_alloc(sizeof(u8) * Dyn_Map_Size);
-//     virgin_tmout = (u8*)ck_alloc(sizeof(u8) * Dyn_Map_Size);
-//     virgin_crash = (u8*)ck_alloc(sizeof(u8) * Dyn_Map_Size);
-//     var_bytes = (u8*)ck_alloc(sizeof(u8) * Dyn_Map_Size);
-//     top_rated = (struct queue_entry**)ck_alloc(sizeof(struct queue_entry*) * Dyn_Map_Size);
-
-//     return;
-// }
 
 /* add a new path id
     q: the saved seed related to the new path
@@ -1041,18 +1034,18 @@ EXP_ST void destroy_queue(void) {
   // destroy chains  
 
     for (int i=0; i< MAX_PATH; i++){
-        struct collide_path *pc, *tc, *cc;
+        struct collide_path *pc=NULL, *cc=NULL;
         while(path_chain[i]){
             pc = path_chain[i]->next;
             ck_free(path_chain[i]);
             path_chain[i] = pc;
         }
 
-        while(tmout_chain[i]){
-            tc = tmout_chain[i]->next;
-            ck_free(tmout_chain[i]);
-            tmout_chain[i] = tc;
-        }
+        // while(tmout_chain[i]){
+        //     tc = tmout_chain[i]->next;
+        //     ck_free(tmout_chain[i]);
+        //     tmout_chain[i] = tc;
+        // }
 
         while(crash_chain[i]){
             cc = crash_chain[i]->next;
@@ -1104,6 +1097,73 @@ EXP_ST void read_bitmap(u8* fname) {
 
 }
 
+static inline u8 has_new_bits_in_old(u8* virgin_map) {
+
+#ifdef __x86_64__
+
+  u64* current = (u64*)trace_bits;
+  u64* virgin  = (u64*)virgin_map;
+
+  u32  i = (MAP_SIZE >> 3);
+
+#else
+
+  u32* current = (u32*)trace_bits;
+  u32* virgin  = (u32*)virgin_map;
+
+  u32  i = (MAP_SIZE >> 2);
+
+#endif /* ^__x86_64__ */
+
+  u8   ret = 0;
+
+  while (i--) {
+
+    /* Optimize for (*current & *virgin) == 0 - i.e., no bits in current bitmap
+       that have not been already cleared from the virgin map - since this will
+       almost always be the case. */
+
+    if (unlikely(*current) && unlikely(*current & *virgin)) {
+
+      if (likely(ret < 2)) {
+
+        u8* cur = (u8*)current;
+        u8* vir = (u8*)virgin;
+
+        /* Looks like we have not found any new bytes yet; see if any non-zero
+           bytes in current[] are pristine in virgin[]. */
+
+#ifdef __x86_64__
+
+        if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
+            (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff) ||
+            (cur[4] && vir[4] == 0xff) || (cur[5] && vir[5] == 0xff) ||
+            (cur[6] && vir[6] == 0xff) || (cur[7] && vir[7] == 0xff)) ret = 2;
+        
+
+#else
+
+        if ((cur[0] && vir[0] == 0xff) || (cur[1] && vir[1] == 0xff) ||
+            (cur[2] && vir[2] == 0xff) || (cur[3] && vir[3] == 0xff)) ret = 2;
+        
+
+#endif /* ^__x86_64__ */
+
+      }
+
+      *virgin &= ~*current;
+
+    }
+
+    current++;
+    virgin++;
+
+  }
+
+  return ret;
+
+}
+
 
 /* Check if the current execution path brings anything new to the table.
    Update virgin bits to reflect the finds. Returns 1 if the only change is
@@ -1111,10 +1171,12 @@ EXP_ST void read_bitmap(u8* fname) {
    Updates the map, so subsequent calls will always return 0.
 
    This function is called after every exec() on a fairly large buffer, so
-   it needs to be fast. We do this in 32-bit and 64-bit flavors. */
+   it needs to be fast. We do this in 32-bit and 64-bit flavors. 
+   
+   iscrash: 1 for crash, 0 for others
+   */
 
-static inline u8 has_new_bits(u8* virgin_map, u8 pct_hash[], 
-                            struct collide_path *pct_chain[], u32 path_id, u32 path_cksum) {
+static inline u8 has_new_bits(u8* virgin_map) {
 
 #ifdef __x86_64__
 
@@ -1178,15 +1240,6 @@ static inline u8 has_new_bits(u8* virgin_map, u8 pct_hash[],
   }
 
   if (ret && virgin_map == virgin_bits) bitmap_changed = 1;
-
-  if ((ret == 1) || (ret == 0)){ //no new edges
-      // one bit indicates an edge--rosen
-    u8 pstat = PS_NONE;
-    pstat = OldEdgePathIdentify(pct_hash, pct_chain, queue_cur, path_id, path_cksum);//rosen
-    if ((pstat == PS_NEW_COLSN) || (pstat == PS_NEW_NO_COLSN)){
-      ret = 3; //new path in old edges
-    }
-  }
 
   return ret;
 
@@ -1598,6 +1651,9 @@ EXP_ST void setup_shm(void) {
 
   memset(virgin_tmout, 255, MAP_SIZE);
   memset(virgin_crash, 255, MAP_SIZE);
+  memset(virgin_new_in_old, 255, MAP_SIZE);
+ 
+  
 
   shm_id = shmget(IPC_PRIVATE, MAP_SIZE, IPC_CREAT | IPC_EXCL | 0600);
 
@@ -1731,6 +1787,7 @@ static void read_testcases(void) {
     ck_free(dfn);
 
     add_to_queue(fn, st.st_size, passed_det);
+    
 
   }
 
@@ -2794,8 +2851,8 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
   u32 use_tmout = exec_tmout;
   u8* old_sn = stage_name;
 
-  u8 path_hnb;
-  u32 path_cksum = 0, path_id = 0;//rosen
+  // u8 path_hnb;
+  // u32 path_cksum = 0, path_id = 0;//rosen
 
   /* Be a bit more generous about timeouts when resuming sessions, or when
      trying to calibrate already-added finds. This helps avoid trouble due
@@ -2819,16 +2876,6 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
   if (q->exec_cksum) memcpy(first_trace, trace_bits, MAP_SIZE);
 
   start_us = get_cur_time_us();
-
-  /* run for new path in old edges- rosen*/
-  write_to_testcase(use_mem, q->len);
-  fault = run_target(argv, use_tmout);
-  memset(edge_trace, 0, MAP_SIZE>>3);
-  minimize_bits(edge_trace, trace_bits);
-  path_cksum = hash32(edge_trace, MAP_SIZE >>3, HASH_CONST); //rosen
-  path_id = path_cksum % (MAX_PATH);  //remainder
-
-  path_hnb = has_new_bits(virgin_bits, path_hash, path_chain, path_id, path_cksum); //rosen
 
   for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
 
@@ -2854,12 +2901,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
     if (q->exec_cksum != cksum) {
 
-      memset(edge_trace, 0, MAP_SIZE>>3);
-      minimize_bits(edge_trace, trace_bits);
-
-      path_cksum = hash32(edge_trace, MAP_SIZE >>3, HASH_CONST); //rosen-????
-      path_id = path_cksum % (MAX_PATH);  //remainder
-      u8 hnb = has_new_bits(virgin_bits, path_hash, path_chain, path_id, path_cksum); //rosen
+      u8 hnb = has_new_bits(virgin_bits); //rosen
       if (hnb > new_bits) new_bits = hnb;
 
       if (q->exec_cksum) {
@@ -2906,10 +2948,6 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
   total_bitmap_size += q->bitmap_size;
   total_bitmap_entries++;
 
-  if ((path_hnb == 2) || (path_hnb == 3)){ //rosen
-        newPathInsert(path_hash, path_chain, q, path_id, path_cksum);
-      }
-
   update_bitmap_score(q);
 
   /* If this case didn't result in new output from the instrumentation, tell
@@ -2920,15 +2958,10 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
 abort_calibration:
 
-  if (!q->has_new_cov) { //rosen
-    if (new_bits == 2){
+  if (!q->has_new_cov && new_bits == 2) { //rosen
       q->has_new_cov = 1;
       queued_with_cov++;
-    }
-    else if (new_bits == 3){
-      q->has_new_cov = 2;
-      queued_with_cov++;
-    }    
+       
   }
  
 
@@ -3398,22 +3431,40 @@ static void write_crash_readme(void) {
 static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
   u8  *fn = "";
-  u8  hnb; //edge state
+  u8  hnb, crash_hnb = 0; //edge state
+  u8 pstat = PS_NONE;
+  u32 path_cksum, //rosen
+       path_id;
 
   s32 fd;
   u8  keeping = 0, res;
 
-  // one bit indicates an edge
   memset(edge_trace, 0, MAP_SIZE >> 3);
   minimize_bits(edge_trace, trace_bits);
-  u32 path_cksum = hash32(edge_trace, MAP_SIZE >> 3, HASH_CONST); //rosen
-  u32 path_id = path_cksum % MAX_PATH;  //remainder
+  path_cksum = hash32(edge_trace, MAP_SIZE >> 3, HASH_CONST); //rosen
+  path_id = path_cksum % MAX_PATH;  //remainder
 
   if (fault == crash_mode) {
     // crash_mode = 2 if crash mode; else crash_mode=0, normal mode 
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
-    hnb = has_new_bits(virgin_bits, path_hash, path_chain, path_id, path_cksum);
+    hnb = has_new_bits(virgin_bits);
+    if ((hnb == 1) || (hnb == 0)){ //no new edges
+      // one bit indicates an edge
+      
+      //if ((queued_paths - queued_with_cov) < (queued_with_cov * N_PERCENT_100 / 100)){ // P < n/100
+        // one bit indicates an edge--rosen
+        pstat = OldEdgePathIdentify(path_hash, path_chain, queue_cur, path_id, path_cksum);//rosen
+        if ((pstat == PS_NEW_COLSN) || (pstat == PS_NEW_NO_COLSN)){
+          if(has_new_bits_in_old(virgin_new_in_old)){//keep diversity
+              hnb = 3; //new path in old edges
+              queued_new_in_old++;
+          }
+          
+        }
+      //} 
+    }
+
     if (!hnb) {//no new edges
       if (crash_mode) total_crashes++;
         return 0;
@@ -3434,22 +3485,24 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
     add_to_queue(fn, len, 0);
 
 
-        //rosen
+    //rosen
     if (hnb == 2){
         queue_top->has_new_cov = 1; // new edge
         queued_with_cov++;
-    }else if (hnb == 3){
-        queue_top->has_new_cov = 2; // new path in old edges
-        queued_with_cov++;
     }
 
+
+
     queue_top->exec_cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
-    queue_top->pathid_cksum = path_cksum;
+    
 
     /* Try to calibrate inline; this also calls update_bitmap_score() when
        successful. */
 
     res = calibrate_case(argv, queue_top, mem, queue_cycle - 1, 0);
+    if (hnb == 2 || hnb ==3){
+        newPathInsert(path_hash, path_chain, queue_top, path_id, path_cksum);
+    }
  
 
     if (res == FAULT_ERROR)
@@ -3484,13 +3537,13 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 #else
         simplify_trace((u32*)trace_bits);
 #endif /* ^__x86_64__ */
-
-        if (!has_new_bits(virgin_tmout, tmout_hash, tmout_chain, path_id, path_cksum)) return keeping;
+        
+        if (!has_new_bits(virgin_tmout)) return keeping;
 
       }
 
       unique_tmouts++;
-      newPathInsert(tmout_hash, tmout_chain, queue_cur, path_id, path_cksum); //rosen
+      //newPathInsert(tmout_hash, tmout_chain, queue_cur, path_id, path_cksum); //rosen
 
       /* Before saving, we make sure that it's a genuine hang by re-running
          the target with a more generous timeout (unless the default timeout
@@ -3549,10 +3602,17 @@ keep_as_crash:
 #else
         simplify_trace((u32*)trace_bits);
 #endif /* ^__x86_64__ */
+        crash_hnb = has_new_bits(virgin_crash);
+        if (crash_hash == 0 || crash_hnb ==1){
+          pstat = OldEdgePathIdentify(crash_hash, crash_chain, queue_cur, path_id, path_cksum);//rosen
+          if ((pstat == PS_NEW_COLSN) || (pstat == PS_NEW_NO_COLSN)){
+            crash_hnb = 3; //new path in old edges
+          }
+        }
 
-        if (!has_new_bits(virgin_crash, crash_hash, crash_chain, path_id, path_cksum)) return keeping;  //rosen - unique crash
-
+        if (!crash_hnb) return keeping;  //rosen - unique crash
       }
+      
 
       if (!unique_crashes) write_crash_readme();
 
@@ -3569,7 +3629,10 @@ keep_as_crash:
 #endif /* ^!SIMPLE_FILES */
 
       unique_crashes++;
-      newPathInsert(crash_hash, crash_chain, queue_cur, path_id, path_cksum);
+      if (crash_hnb ==2 || crash_hnb ==3){
+        newPathInsert(crash_hash, crash_chain, queue_cur, path_id, path_cksum);
+      }
+      
 
       last_crash_time = get_cur_time();
       last_crash_execs = total_execs;
@@ -3778,10 +3841,10 @@ static void maybe_update_plot_file(double bitmap_cvg, double eps) {
      execs_per_sec */
 
   fprintf(plot_file, 
-          "%llu, %llu, %u, %u, %u, %u, %0.02f%%, %llu, %llu, %u, %0.02f\n",
+          "%llu, %llu, %u, %u, %u, %u, %0.02f%%, %llu, %llu, %u, %0.02f, %u, %u\n",
           get_cur_time() / 1000, queue_cycle - 1, current_entry, queued_paths,
           pending_not_fuzzed, pending_favored, bitmap_cvg, unique_crashes,
-          unique_hangs, max_depth, eps); /* ignore errors */
+          unique_hangs, max_depth, eps, queued_with_cov, queued_new_in_old); /* ignore errors */
 
   fflush(plot_file);
 
@@ -4438,9 +4501,10 @@ static void show_stats(void) {
   SAYF(bV bSTOP " stage execs : " cRST "%-21s " bSTG bV bSTOP, tmp);
 
   sprintf(tmp, "%s (%0.02f%%)", DI(queued_with_cov),
-          ((double)queued_with_cov) * 100 / queued_paths);
+          ((double)queued_with_cov) * 100 / queued_paths); //rosen
 
   SAYF("  new edges on : " cRST "%-22s " bSTG bV "\n", tmp);
+
 
   sprintf(tmp, "%s (%s%s unique)", DI(total_crashes), DI(unique_crashes),
           (unique_crashes >= KEEP_UNIQUE_CRASH) ? "+" : "");
@@ -7467,8 +7531,8 @@ EXP_ST void setup_dirs_fds(void) {
   if (!plot_file) PFATAL("fdopen() failed");
 
   fprintf(plot_file, "# unix_time, cycles_done, cur_path, paths_total, "
-                     "pending_total, pending_favs, MAP_SIZE, unique_crashes, "
-                     "unique_hangs, max_depth, execs_per_sec\n");
+                     "pending_total, pending_favs, map_size, unique_crashes, "
+                     "unique_hangs, max_depth, execs_per_sec, new_edge_paths, new_path_old_edges\n");
                      /* ignore errors */
 
 }
