@@ -6,5 +6,5 @@
 // carefully
 #define NUM_INDIRECT_TARGETS 5
 #define MAX_PATH (1<<16)
-#define N_PERCENT_100 1
+
 

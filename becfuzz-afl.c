@@ -1653,9 +1653,8 @@ EXP_ST void setup_shm(void) {
   memset(virgin_crash, 255, MAP_SIZE);
   memset(virgin_new_in_old, 255, MAP_SIZE);
  
-  
-
-  shm_id = shmget(IPC_PRIVATE, MAP_SIZE, IPC_CREAT | IPC_EXCL | 0600);
+  //shm_id = shmget(IPC_PRIVATE, MAP_SIZE, IPC_CREAT | IPC_EXCL | 0600);
+  shm_id = shmget(IPC_PRIVATE, MAP_SIZE + 1, IPC_CREAT | IPC_EXCL | 0600); //rosen-- the last one is for indirect edges
 
   if (shm_id < 0) PFATAL("shmget() failed");
 
@@ -1675,6 +1674,9 @@ EXP_ST void setup_shm(void) {
   trace_bits = shmat(shm_id, NULL, 0);
   
   if (!trace_bits) PFATAL("shmat() failed");
+
+  // set the initial indirect state:0, i.e., no new indirect edges
+  trace_bits[MAP_SIZE] = 0;  
 
 }
 
@@ -2303,9 +2305,9 @@ EXP_ST void init_forkserver(char** argv) {
     /* Umpf. On OpenBSD, the default fd limit for root users is set to
        soft 128. Let's try to fix that... */
 
-    if (!getrlimit(RLIMIT_NOFILE, &r) && r.rlim_cur < FORKSRV_FD + 2) {
+    if (!getrlimit(RLIMIT_NOFILE, &r) && r.rlim_cur < FORKSRV_FD + 2) { 
 
-      r.rlim_cur = FORKSRV_FD + 2;
+      r.rlim_cur = FORKSRV_FD + 2; 
       setrlimit(RLIMIT_NOFILE, &r); /* Ignore errors */
 
     }
@@ -2366,6 +2368,7 @@ EXP_ST void init_forkserver(char** argv) {
     close(ctl_pipe[1]);
     close(st_pipe[0]);
     close(st_pipe[1]);
+
 
     close(out_dir_fd);
     close(dev_null_fd);
@@ -2672,12 +2675,24 @@ static u8 run_target(char** argv, u32 timeout) {
     /* In non-dumb mode, we have the fork server up and running, so simply
        tell it to have at it, and then read back PID. */
 
-    if ((res = write(fsrv_ctl_fd, &prev_timed_out, 4)) != 4) {
+    if (trace_bits[MAP_SIZE] == 1){ //rosen- new indirect edges
+      if ((res = write(fsrv_ctl_fd, &prev_timed_out, 2)) != 2) {
 
-      if (stop_soon) return 0;
-      RPFATAL(res, "Unable to request new process from fork server (OOM?)");
+        if (stop_soon) return 0;
+        RPFATAL(res, "Unable to request new process from fork server (OOM?)");
+
+      }
+    }
+    else{ //rosen- no new indirect edges
+      if ((res = write(fsrv_ctl_fd, &prev_timed_out, 4)) != 4) {
+
+        if (stop_soon) return 0;
+        RPFATAL(res, "Unable to request new process from fork server (OOM?)");
+
+      }
 
     }
+    
 
     if ((res = read(fsrv_st_fd, &child_pid, 4)) != 4) {
 
@@ -3449,20 +3464,16 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
     hnb = has_new_bits(virgin_bits);
-    if ((hnb == 1) || (hnb == 0)){ //no new edges
-      // one bit indicates an edge
-      
-      //if ((queued_paths - queued_with_cov) < (queued_with_cov * N_PERCENT_100 / 100)){ // P < n/100
-        // one bit indicates an edge--rosen
-        pstat = OldEdgePathIdentify(path_hash, path_chain, queue_cur, path_id, path_cksum);//rosen
-        if ((pstat == PS_NEW_COLSN) || (pstat == PS_NEW_NO_COLSN)){
-          if(has_new_bits_in_old(virgin_new_in_old)){//keep diversity
-              hnb = 3; //new path in old edges
-              queued_new_in_old++;
-          }
-          
+    if ((hnb == 1) || (hnb == 0)){ //no new edges  
+      // one bit indicates an edge--rosen
+      pstat = OldEdgePathIdentify(path_hash, path_chain, queue_cur, path_id, path_cksum);//rosen
+      if ((pstat == PS_NEW_COLSN) || (pstat == PS_NEW_NO_COLSN)){
+        if(has_new_bits_in_old(virgin_new_in_old)){//keep diversity
+            hnb = 3; //new path in old edges
+            queued_new_in_old++;
         }
-      //} 
+        
+      }
     }
 
     if (!hnb) {//no new edges
@@ -8228,13 +8239,6 @@ int main(int argc, char** argv) {
 
   check_binary(argv[optind]);
   
-    // instrument binary; get the value of Dyn_Map_Size
-  //instrument_binary(); 
-  // malloc memories for maps
-  //malloc_maps();
-  //setup_shm();
-  
-
   start_time = get_cur_time();
 
   use_argv = argv + optind;

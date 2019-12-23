@@ -210,12 +210,10 @@ bool count_edges(BPatch_binaryEdit * appBin, BPatch_image *appImage,
         block->getInstructions(insns);
 
         //Dyninst::Address addr = insns.back().second;  //addr: equal to offset when it's binary rewrite
-
-
         Dyninst::InstructionAPI::Instruction insn = insns.back().first; 
-        //Dyninst::InstructionAPI::Operation op = insn.getOperation();
+        Dyninst::InstructionAPI::Operation op = insn.getOperation();
         Dyninst::InstructionAPI::InsnCategory category = insn.getCategory();
-        //Dyninst::InstructionAPI::Expression::Ptr expt = insn.getControlFlowTarget();
+        Dyninst::InstructionAPI::Expression::Ptr expt = insn.getControlFlowTarget();
 
         //conditional jumps
         vector<BPatch_edge *> outgoingEdge;
@@ -333,9 +331,9 @@ bool edgeInstrument(BPatch_binaryEdit * appBin, BPatch_image *appImage,
 
         Dyninst::Address addr = insns.back().second;  //addr: equal to offset when it's binary rewrite
         Dyninst::InstructionAPI::Instruction insn = insns.back().first; 
-        //Dyninst::InstructionAPI::Operation op = insn.getOperation();
+        Dyninst::InstructionAPI::Operation op = insn.getOperation();
         Dyninst::InstructionAPI::InsnCategory category = insn.getCategory();
-        //Dyninst::InstructionAPI::Expression::Ptr expt = insn.getControlFlowTarget();
+        Dyninst::InstructionAPI::Expression::Ptr expt = insn.getControlFlowTarget();
 
         //conditional jumps
         vector<BPatch_edge *> outgoingEdge;
@@ -530,7 +528,7 @@ int main (int argc, char **argv){
     numedges.open (num_file.c_str(), ios::out | ios::app | ios::binary); //write file
     if(numedges.is_open()){
         numedges << num_conditional << " " << max_map_size << endl; 
-        numedges << num_indirect << endl;
+        //numedges << num_indirect << endl;
     }
     numedges.close();    
     //TODO: fuzzer gets the values through pipe (or shared memory?)?
