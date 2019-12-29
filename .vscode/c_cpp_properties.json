@@ -3,7 +3,6 @@
         {
             "name": "Linux",
             "includePath": [
-                "${workspaceFolder}/**",
                 "/apps/buildDyn101/include"
             ],
             "defines": [],

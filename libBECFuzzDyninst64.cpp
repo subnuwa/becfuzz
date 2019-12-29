@@ -50,8 +50,6 @@ u32 cur_max_id; // the current id of indirect edges
 */
 void initAflForkServer(u32 max_conditional, const char* indirect_file)
 {
-    
-
     /* start fork */
     int temp_data;
     pid_t fork_pid;
@@ -150,6 +148,7 @@ void initAflForkServer(u32 max_conditional, const char* indirect_file)
 
 /* callback function for instrumenting conditional edges*/
 void ConditionJump(u32 cond_id){
+    
     if(trace_bits) {
         trace_bits[cond_id]++;
     }
@@ -162,6 +161,7 @@ addr_file: path to the file that contains (src_addr  des_addr  id)
 
   */
 void IndirectEdges(u64 src_addr, u64 des_addr, u32 max_map_size, u32 max_conditional, const char* addr_file){
+
 
     //read assigned ids from indirect_ids only if it's the first execution
     if (!indirect_ids.empty()){
@@ -200,7 +200,8 @@ void IndirectEdges(u64 src_addr, u64 des_addr, u32 max_map_size, u32 max_conditi
     ofstream indaddrs;
     indaddrs.open (addr_file, ios::out | ios::app | ios::binary); //write file
     if(indaddrs.is_open()){
-        indaddrs << src_addr << " " << des_addr << " " << cur_max_id << endl; 
+        //indaddrs << src_addr << " " << des_addr << " " << cur_max_id << endl; 
+        indaddrs << src_addr << " " << des_addr << endl;
     }
         
     

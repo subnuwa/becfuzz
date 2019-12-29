@@ -51,8 +51,8 @@ DOC_PATH    = $(PREFIX)/share/doc/afl
 MISC_PATH   = $(PREFIX)/share/afl
 
 # PROGS intentionally omit as, which gets installed elsewhere.
-
-PROGS       = becfuzz-afl libBECFuzzDyninst BECFuzzDyninst afl-showmap
+# afl-showmap 
+PROGS       = becfuzz-afl64 libBECFuzzDyninst64 BECFuzzDyninst64 becfuzz-afl128 libBECFuzzDyninst128 BECFuzzDyninst128 becfuzz-afl256 libBECFuzzDyninst256 BECFuzzDyninst256
 SH_PROGS    = afl-plot
 
 CFLAGS     ?= -O3 -funroll-loops
@@ -86,19 +86,37 @@ endif
 
 # BECFuzz dependencies
 
-becfuzz-afl: becfuzz-afl.c $(COMM_HDR) | test_x86
+becfuzz-afl64: becfuzz-afl64.c $(COMM_HDR) | test_x86
 	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
 
-libBECFuzzDyninst: libBECFuzzDyninst.cpp
-	$(CXX) $(CXXFLAGS) -o libBECFuzzDyninst.so libBECFuzzDyninst.cpp $(LDFLAGS) $(LIBFLAGS)
-
-BECFuzzDyninst: BECFuzzDyninst.cpp
-	$(CXX) -Wl,-rpath-link,$(DYN_ROOT)/lib -Wl,-rpath-link,$(DYN_ROOT)/include $(CXXFLAGS) -o BECFuzzDyninst BECFuzzDyninst.cpp $(LDFLAGS)
-
-
-
-afl-showmap: afl-showmap.c $(COMM_HDR) | test_x86
+becfuzz-afl128: becfuzz-afl128.c $(COMM_HDR) | test_x86
 	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
+
+becfuzz-afl256: becfuzz-afl256.c $(COMM_HDR) | test_x86
+	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
+
+libBECFuzzDyninst64: libBECFuzzDyninst64.cpp
+	$(CXX) $(CXXFLAGS) -o libBECFuzzDyninst64.so libBECFuzzDyninst64.cpp $(LDFLAGS) $(LIBFLAGS)
+
+BECFuzzDyninst64: BECFuzzDyninst64.cpp
+	$(CXX) -Wl,-rpath-link,$(DYN_ROOT)/lib -Wl,-rpath-link,$(DYN_ROOT)/include $(CXXFLAGS) -o BECFuzzDyninst64 BECFuzzDyninst64.cpp $(LDFLAGS)
+
+libBECFuzzDyninst128: libBECFuzzDyninst128.cpp
+	$(CXX) $(CXXFLAGS) -o libBECFuzzDyninst128.so libBECFuzzDyninst128.cpp $(LDFLAGS) $(LIBFLAGS)
+
+BECFuzzDyninst128: BECFuzzDyninst128.cpp
+	$(CXX) -Wl,-rpath-link,$(DYN_ROOT)/lib -Wl,-rpath-link,$(DYN_ROOT)/include $(CXXFLAGS) -o BECFuzzDyninst128 BECFuzzDyninst128.cpp $(LDFLAGS)
+
+libBECFuzzDyninst256: libBECFuzzDyninst256.cpp
+	$(CXX) $(CXXFLAGS) -o libBECFuzzDyninst256.so libBECFuzzDyninst256.cpp $(LDFLAGS) $(LIBFLAGS)
+
+BECFuzzDyninst256: BECFuzzDyninst256.cpp
+	$(CXX) -Wl,-rpath-link,$(DYN_ROOT)/lib -Wl,-rpath-link,$(DYN_ROOT)/include $(CXXFLAGS) -o BECFuzzDyninst256 BECFuzzDyninst256.cpp $(LDFLAGS)
+
+
+
+# afl-showmap: afl-showmap.c $(COMM_HDR) | test_x86
+# 	$(CC) $(CFLAGS) $@.c -o $@ $(LDFLAGS)
 
 
 
