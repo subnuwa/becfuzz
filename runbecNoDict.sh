@@ -12,7 +12,8 @@ OUTDIR=${1}_becafl
 SEEDS=$2
 TARGET=$3
 VERSION=$4
-PARAMS=`echo ${@:5}`
+FUZZTIME=$5
+PARAMS=`echo ${@:6}`
 
 NAME=`echo ${TARGET##*/}`
 INSTNAME=${NAME}_inst
@@ -20,15 +21,18 @@ INSTNAME=${NAME}_inst
 
 mkdir $OUTDIR
 ./BECFuzzDyninst${VERSION} -i $TARGET  -o  ${OUTDIR}/${INSTNAME} -b $OUTDIR
+sleep 1
 
-COMMD="./becfuzz-afl${VERSION} -i $SEEDS -o ${OUTDIR}/out -t 500 -m 1G -- $OUTDIR/$INSTNAME $PARAMS"
+COMMD="./becfuzz-afl${VERSION} -i $SEEDS -o ${OUTDIR}/out -t 500 -m 1G -- ${OUTDIR}/${INSTNAME} $PARAMS"
 
 (
     ${COMMD}
 )&
-sleep 1m
+sleep $FUZZTIME
 # ctrl-c
 ps -ef | grep "$COMMD" | grep -v 'grep' | awk '{print $2}' | xargs kill -2
+
+rm ${OUTDIR}/${INSTNAME}
 chmod 777 -R $OUTDIR
 sleep 1
 

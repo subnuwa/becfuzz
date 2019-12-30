@@ -200,8 +200,8 @@ void IndirectEdges(u64 src_addr, u64 des_addr, u32 max_map_size, u32 max_conditi
     ofstream indaddrs;
     indaddrs.open (addr_file, ios::out | ios::app | ios::binary); //write file
     if(indaddrs.is_open()){
-        //indaddrs << src_addr << " " << des_addr << " " << cur_max_id << endl; 
-        indaddrs << src_addr << " " << des_addr << endl;
+        indaddrs << src_addr << " " << des_addr << " " << cur_max_id << endl; 
+        //indaddrs << src_addr << " " << des_addr << endl; //rosen
     }
         
     
