@@ -13,17 +13,26 @@ SEEDS=$2
 TARGET=$3
 VERSION=$4
 FUZZTIME=$5
-PARAMS=`echo ${@:6}`
+WITHDICT=$6
+TIMEOUT=$7
+PARAMS=`echo ${@:8}`
+
 
 NAME=`echo ${TARGET##*/}`
 INSTNAME=${NAME}_inst
 
 
-mkdir $OUTDIR
-./BECFuzzDyninst${VERSION} -i $TARGET  -o  ${OUTDIR}/${INSTNAME} -b $OUTDIR
-sleep 1
+# mkdir $OUTDIR
+# ./BECFuzzDyninst${VERSION} -i $TARGET  -o  ${OUTDIR}/${INSTNAME} -b $OUTDIR
+# sleep 1
 
-COMMD="./becfuzz-afl${VERSION} -i $SEEDS -o ${OUTDIR}/out -t 500 -m 1G -- ${OUTDIR}/${INSTNAME} $PARAMS"
+if [ "$WITHDICT"x = "nodict"x ]
+then
+    COMMD="./becfuzz-afl${VERSION} -i $SEEDS -o ${OUTDIR}/out -t $TIMEOUT -m 1G -- ${OUTDIR}/${INSTNAME} $PARAMS"
+else
+    COMMD="./becfuzz-afl${VERSION} -i $SEEDS -o ${OUTDIR}/out -x ${WITHDICT} -t $TIMEOUT -m 1G -- ${OUTDIR}/${INSTNAME} $PARAMS"
+fi
+
 
 (
     ${COMMD}
