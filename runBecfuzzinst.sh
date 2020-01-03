@@ -1,6 +1,5 @@
 #!/bin/bash
 
-
 export PATH=$PATH:/apps/becfuzz
 export AFL_NO_UI=1 
 # $0: runfuzz.sh itself; $1: path to output directory
