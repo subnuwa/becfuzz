@@ -1,7 +1,8 @@
 #!/bin/bash
 
-export PATH=$PATH:/apps/becfuzz
+export PATH=$PATH:/home/xgzhu/apps/becfuzz
 export AFL_NO_UI=1 
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/xgzhu/apps/becfuzz
 # $0: runfuzz.sh itself; $1: path to output directory
 # $2: fuzzing seed dir;
 # $3: path to target binary;  ${@:4}: parameters running targets
