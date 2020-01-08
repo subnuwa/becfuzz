@@ -1,4 +1,5 @@
 # collision free
+for no-pie binaries.
 
 ## Install Dyninst
 
@@ -26,6 +27,8 @@ export PATH=$PATH:$BECFUZZ_PATH
 ## run fuzzing
 
 1. instrument target programs using BECFuzzDyninst
+
+    ./BECFuzzDyninst64 -i /path/to/target -o /path/to/instrumented/binary -b /path/to/output
 
 2. fuzz the instrumented binary
 
