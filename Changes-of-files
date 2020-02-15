@@ -1,0 +1,112 @@
+### 
+    #the environment PATH should include this directory, 
+    #because the instrumented binary needs the shared library libCofreeDyninst.so 
+###
+
+    ## dry_run--calibrate_case()--run_target(tracer)
+    ## sync_fuzzers: run(tracer)
+    ## fuzz_one()--trim_case()--run(tracer)
+    ## fuzz_one()--common_fuzz_stuff()--run(oracle)
+    ## common_fuzz_stuff()--save_if_interesting()--run(tracer)--stop(oracle)
+            --stop(tracer)--instrument(oracle)--copy oracle to tracer
+            --start(oracle)--start(tracer)
+###
+
+
+
+[TODO]
+
+
+becfuzz-afl.c
+    1. seperate the instrumentation and fuzzing
+        ###1) instruemnt the binary using a program other than afl;
+        ###2) after instrument, running afl;
+        ###3) use shell to run them;
+        4) compile several versions of afl, each has different MAP_SIZE;
+            becfuzz-afl64 , afl128, afl256, afl512
+    ### only use the new paths in old edges when checking unique crashes
+    ### check uniqe crash
+    ###. cksum: the trace_bit should not include hit-count
+
+
+BECFuzz.cpp
+    1. if max_map_size > 512k, set max_map_size=512k
+    2. the ID of conditional number should less than the max_map_size
+    3. size range [0,64k]->64k, (64k,128k]->128k, (128K,256k]->256k, (256k, 512k]->512k, (512k,)->say sorry
+    
+seed selection:
+    1. first choose the seed A with max number of edges (or randomly)
+    2. mutate the seed A: in splicing, choose the smallest editing distance seed B to do so
+    3. select anther seed to mutate: choose the largest editing distance seed C to mutate
+
+ 
+[INSTALL]
+change the 'Dyn_ROOT' in Makefile
+$ make clean && make all
+
+[ENV]
+export BEC_AFL_PATH=/apps/becfuzz
+export PATH=$PATH:$BEC_AFL_PATH
+
+#export DYNINST_INSTALL=/home/nsc2s/apps/buildDyn10.1
+
+#export DYNINSTAPI_RT_LIB=$DYNINST_INSTALL/lib/libdyninstAPI_RT.so
+#export LD_LIBRARY_PATH=$DYNINST_INSTALL/lib:$COFREE_AFL_PATH
+
+
+ export COFREE_AFL_PATH=/apps/cofree-afl0627/
+
+[RUN]
+chang to root
+$ sudo su
+$ echo core >/proc/sys/kernel/core_pattern
+$ cd /sys/devices/system/cpu
+$ echo performance | tee cpu*/cpufreq/scaling_governor
+change back to user
+$ exit (or press ctrl+D)
+
+[] Don't forget to set the timeout
+
+
+1. audiofile/sfconvert: 
+afl-fuzz-saveinputs -i seed_dir -o out_dir -t 500 -- ./audiofile-0.2.7/sfcommands/sfconvert @@ out.mp3 format aiff
+
+2. binutils/readelf
+afl-fuzz-saveinputs -i seed_dir -o out_dir -t 500 -Q -- ./binutils-2.30/binutils/readelf -a @@
+
+3. cjson/cjson
+afl-fuzz-saveinputs -i seed_dir -o out_dir -x json.dict -t 500 -Q -- ./cjson-1.7.7/fuzzing/cjson @@
+
+4. libarchive/bsdtar
+afl-fuzz-saveinputs -i seed_dir -o out_dir -t 500 -Q -- ./libarchive-3.3.2/bsdtar -O -xf @@
+
+5. libjpeg/djpeg
+afl-fuzz-saveinputs -i seed_dir -o out_dir -t 500 -Q -- ./jpeg-9c/djpeg @@
+
+6.libksba/cert-basic
+afl-fuzz-saveinputs -i seed_dir -o out_dir -t 500 -Q -- ./libksba-1.3.5/tests/cert-basic @@
+
+7. poppler/pdftohtml
+afl-fuzz-saveinputs -i seed_dir -x pdf.dict -o out_dir -t 500 -Q -- ./poppler-0.22.5/utils/pdftohtml @@
+
+8. tcpdump/tcpdump
+afl-fuzz-saveinputs -i seed_dir -o out_dir -t 500 -Q -- ./tcpdump-4.9.2/tcpdump -nr @@
+
+9. lava/base64
+afl-fuzz -i seed_dir -o out_dir -t 500 -Q -- ./lava_bins/base64 -d @@
+
+10. lava/md5sum
+afl-fuzz -i seed_dir -o out_dir -t 500 -Q -- ./lava_bins/md5sum @@
+
+11. lava/uniq
+afl-fuzz -i seed_dir -o out_dir -t 500 -Q -- ./lava_bins/uniq
+
+9. lava/who
+afl-fuzz -i seed_dir -o out_dir -t 500 -Q -- ./lava_bins/who @@
+
+
+
+[PROBLEMS]
+
+
+
