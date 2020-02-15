@@ -3,16 +3,14 @@ for no-pie binaries.
 
 ## Install Dyninst
 
-[the branch](https://github.com/mxz297/dyninst/tree/rerewriting)
+[the branch](https://github.com/mxz297/dyninst)
 
 ```
 git clone https://github.com/mxz297/dyninst.git
 cd dyninst
 git checkout fuzzing
-#git checkout rerewriting
-#git reset --hard 5ebf1c887c712201f4df56cabde6596f2801745c
 ```
-[install instructions](https://github.com/mxz297/dyninst/tree/rerewriting)
+[install instructions](https://github.com/mxz297/dyninst)
 
 ## environment
 ```
@@ -26,7 +24,7 @@ export PATH=$PATH:$BECFUZZ_PATH
 
 ## run fuzzing
 
-1. instrument target programs using BECFuzzDyninst
+1. instrument target binaries using BECFuzzDyninst
 
     ./BECFuzzDyninst64 -i /path/to/target -o /path/to/instrumented/binary -b /path/to/output
 
