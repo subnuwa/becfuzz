@@ -24,7 +24,7 @@ export PATH=$PATH:$BECFUZZ_PATH
 Enter the folder becfuzz.
 Change DYN_ROOT in makefile accordingly. Then
 ```
-make
+make clean && make all
 ```
 
 # Instrument binary and run fuzzing
